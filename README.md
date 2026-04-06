@@ -158,7 +158,6 @@ Key values to set:
 ```bash
 HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
 ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
-LOCAL_HOST="YourLocalMachineName"
 CALIBRE_HOST="https://your-calibre-domain:YOUR_PORT"
 PORT=YOUR_PORT
 CERT_FILE="$HOME/path/to/your_cert.pem"

@@ -1,0 +1,16 @@
+# Local machine configuration — contains sensitive paths and hostnames
+# Copy config.sh.example to config.sh and fill in your values
+config.sh
+
+# Temporary files
+*.bak
+*_tmp.sh
+calibre_nightly_backup_tmp.sh
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs (stored in ~/Code/FourM/Logs, not in repo)
+*.log

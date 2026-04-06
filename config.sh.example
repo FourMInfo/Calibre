@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# config.sh.example
+# Copy this file to config.sh and fill in your actual values.
+# config.sh is gitignored and will never be committed to the repository.
+#
+# All scripts source this file automatically via:
+#   source "$(dirname "$0")/config.sh"
+#
+# Variables using $HOME are resolved at runtime so no need to hardcode
+# your username. Only machine-specific values that can't be derived
+# from $HOME belong here.
+
+# ── Backup destinations ───────────────────────────────────────────────────────
+# External drive backup root — drive name is machine specific
+HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
+
+# iCloud backup root
+ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
+
+
+# ── CalibreWeb ────────────────────────────────────────────────────────────────
+# Public URL where CalibreWeb is accessible
+CALIBRE_HOST="https://your-calibre-domain:YOUR_PORT"
+
+# Port CalibreWeb listens on
+PORT=YOUR_PORT
+
+# SSL certificate and key — filenames may vary
+CERT_FILE="$HOME/Code/FourM/Software/Calibre-Keys/your_cert.pem"
+KEY_FILE="$HOME/Code/FourM/Software/Calibre-Keys/your_key.key"
+
+# ── Rotation policy ───────────────────────────────────────────────────────────
+KEEP_DAILY=7
+KEEP_WEEKLY=4
+KEEP_MONTHLY=2
+KEEP_YEARLY=1

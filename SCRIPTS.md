@@ -203,20 +203,51 @@ Before you need to do a real restore, it is worth testing the process so you are
 ```
 Choose a recent snapshot. The script will rsync it to a preview folder and run an integrity check.
 
-**Step 2 — Compare preview to live library:**
-```bash
-diff -rq "/Users/YOUR_USERNAME/Calibre Library" "/Volumes/YOUR_EXTERNAL_DRIVE/CalibreRestore/preview_TIMESTAMP_SNAPSHOT" 2>/dev/null | head -30
-```
-For a same-day snapshot you should see only minor differences like `.DS_Store` files or books added since the snapshot was taken. Any missing books will show as `Only in` lines on the live library side.
+**Step 2 — Clean up DS_Store files before comparing**
 
-**Step 3 — Open Calibre and switch library:**
+macOS creates `.DS_Store` files in every folder you browse in Finder. These will show up as noise in the diff. The nightly backup excludes them going forward, but existing ones in the preview need to be cleaned up first.
+
+Do NOT manually delete `.DS_Store` from the live library — use Calibre's built-in tool instead: **Calibre → Check Library → Fix** which will remove them cleanly.
+
+For the preview folder, delete manually:
+```bash
+find "/Volumes/YOUR_EXTERNAL_DRIVE/CalibreRestore/preview_TIMESTAMP_SNAPSHOT" -name ".DS_Store" -delete
+```
+
+**Step 3 — Compare preview to live library with full log:**
+```bash
+PREVIEW="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreRestore/preview_TIMESTAMP_SNAPSHOT"
+LIBRARY="/Users/YOUR_USERNAME/Calibre Library"
+LOG="$HOME/Code/FourM/Logs/restore_diff_$(date +%Y%m%d).log"
+
+diff -rq "$LIBRARY" "$PREVIEW" > "$LOG" 2>&1
+echo "Exit code: $?"
+echo "Non-DS_Store differences:"
+grep -v ".DS_Store" "$LOG" | head -50
+```
+
+Writing to a log is important — with 8500+ books the output is too large for the terminal. The exit code `0` means identical, `1` means differences found. Check the log for any non-DS_Store differences — those are the ones that matter.
+
+For a same-day snapshot you should see no real differences. Any `Only in live library` lines indicate books added since the snapshot was taken, which is expected.
+
+**Step 4 — Open Calibre and switch library:**
 In Calibre: Preferences → Libraries → switch to the preview folder. Browse around, check metadata, verify books open correctly.
 
-**Step 4 — If satisfied, abort the test restore:**
+**Step 5 — If satisfied, abort the test restore:**
 Simply run `start_calibreweb.sh` to restart CalibreWeb without running `calibre_restore_finalize.sh`. The live library is untouched.
 
-**Step 5 — In a real restore scenario:**
+**Step 6 — In a real restore scenario:**
 If you also have a damaged library with metadata added since the backup, run `calibre_update_metadata.sh` after `calibre_restore_finalize.sh` to recover any metadata from OPF files in the damaged library. See `calibre_update_metadata.sh` documentation above for details.
+
+### Known limitation: rsync and external drive corruption
+
+rsync can occasionally produce corrupt files when writing to external drives, particularly on files that were being written at the moment of a brief disconnection or power fluctuation. This is rare but worth knowing:
+
+- A file may be clean in the live library but corrupt in the external drive snapshot
+- The integrity check in the nightly backup catches this — corrupt files are logged
+- The iCloud snapshot is a separate rsync operation and may be clean where the external drive snapshot is corrupt, or vice versa
+- If you find a corrupt file in a restore preview, check the same file in the iCloud snapshot before concluding it is unrecoverable
+- This is exactly why we maintain two independent backup destinations
 
 ---
 

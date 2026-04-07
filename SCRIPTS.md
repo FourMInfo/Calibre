@@ -214,12 +214,12 @@ Do NOT manually delete `.DS_Store` from the live library — use Calibre's built
 
 For the preview folder, delete manually:
 ```bash
-find `cat .calibre_restore_preview_path` -name ".DS_Store" -delete
+find `cat ~/.Code/FourM/Logs/calibre_restore_preview_path` -name ".DS_Store" -delete
 ```
 
 **Step 3 — Compare preview to live library with full log:**
 ```bash
-PREVIEW=`cat .calibre_restore_preview_path`
+~PREVIEW=`cat ~/.Code/FourM/Logs/ccalibre_restore_preview_path`
 LIBRARY="/Users/YOUR_USERNAME/Calibre Library"
 LOG="$HOME/Code/FourM/Logs/restore_diff_$(date +%Y%m%d).log"
 

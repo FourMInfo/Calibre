@@ -165,8 +165,8 @@ Lists available backup snapshots from all locations and rsyncs the chosen snapsh
 1. Open Calibre app
 2. Switch library to the preview folder
 3. Review that everything looks correct
-4. If satisfied, run `calibre_restore_finalize.sh`
-5. If not satisfied, run `start_calibreweb.sh` to return to normal without any changes
+4. If satisfied, run `calibre_restore_finalize.sh`. 
+5. If not satisfied, choose another snapshot to recover from.
 
 ---
 
@@ -191,17 +191,20 @@ Finalizes a restore after manual review of the preview library. Run only after `
 ### Warning
 This is a destructive operation. A safety copy of the current library is made before deletion, but make absolutely sure you have reviewed the preview first.
 
+### Follow up steps
+Assuming you are restoring because you have a damaged library with metadata added since the backup, run `calibre_update_metadata.sh` after `calibre_restore_finalize.sh` to recover any metadata from OPF files in the damaged library. See `calibre_update_metadata.sh` documentation above for details. Also check the integrity log from the previous step to see what might be damaged in the restore that needs recovery.
+
 ---
 
 ## Testing a Restore
 
-Before you need to do a real restore, it is worth testing the process so you are confident it works. Here is the recommended testing strategy:
+As for any backup strategy, it is worth testing the process so you are confident it works and yoru backups are robust and complete. Here is the recommended testing strategy, which should be done at least once a quarter or after any significant event (hardware change, OS update, Calibre upgrade, cat knocks out external drive). Note too, that the full test should be done twice--once for the iCloud backup once for the external drive backup, althogh full tests can be done every other quarter:
 
 **Step 1 — Run the preview:**
 ```bash
 ./calibre_restore_preview.sh
 ```
-Choose a recent snapshot. The script will rsync it to a preview folder and run an integrity check.
+Choose the most recent snapshot (in general the test should be run the morning after the nightly). The script will rsync it to a preview folder and run an integrity check.
 
 **Step 2 — Clean up DS_Store files before comparing**
 
@@ -211,33 +214,38 @@ Do NOT manually delete `.DS_Store` from the live library — use Calibre's built
 
 For the preview folder, delete manually:
 ```bash
-find "/Volumes/YOUR_EXTERNAL_DRIVE/CalibreRestore/preview_TIMESTAMP_SNAPSHOT" -name ".DS_Store" -delete
+find `cat .calibre_restore_preview_path` -name ".DS_Store" -delete
 ```
 
 **Step 3 — Compare preview to live library with full log:**
 ```bash
-PREVIEW="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreRestore/preview_TIMESTAMP_SNAPSHOT"
+PREVIEW=`cat .calibre_restore_preview_path`
 LIBRARY="/Users/YOUR_USERNAME/Calibre Library"
 LOG="$HOME/Code/FourM/Logs/restore_diff_$(date +%Y%m%d).log"
 
 diff -rq "$LIBRARY" "$PREVIEW" > "$LOG" 2>&1
 echo "Exit code: $?"
 echo "Non-DS_Store differences:"
-grep -v ".DS_Store" "$LOG" | head -50
+grep -v ".DS_Store" "$LOG" | head -50 
 ```
 
 Writing to a log is important — with 8500+ books the output is too large for the terminal. The exit code `0` means identical, `1` means differences found. Check the log for any non-DS_Store differences — those are the ones that matter.
 
 For a same-day snapshot you should see no real differences. Any `Only in live library` lines indicate books added since the snapshot was taken, which is expected.
 
-**Step 4 — Open Calibre and switch library:**
-In Calibre: Preferences → Libraries → switch to the preview folder. Browse around, check metadata, verify books open correctly.
+**Step 4 -- Compare integrity checks:**
+Since the 
 
-**Step 5 — If satisfied, abort the test restore:**
+```bash
+grep -o ': .*' ~/Code/FourM/Logs/calibre_integrity_TIMESTAMP_LIVE_SNAPSHOT | sort > /tmp/live_files.txt
+grep -o ': .*' ~/Code/FourM/Logs/calibre_integrity_TIMESTAMP_RESTORE_SNAPSHOT | sort > /tmp/backup_files.txt
+diff /tmp/live_files.txt /tmp/backup_files.txt
+```
+**Step 5 — If satisfied, restart:**
 Simply run `start_calibreweb.sh` to restart CalibreWeb without running `calibre_restore_finalize.sh`. The live library is untouched.
 
-**Step 6 — In a real restore scenario:**
-If you also have a damaged library with metadata added since the backup, run `calibre_update_metadata.sh` after `calibre_restore_finalize.sh` to recover any metadata from OPF files in the damaged library. See `calibre_update_metadata.sh` documentation above for details.
+**Step 6 — Troubleshooting**
+As noted in next section you might find missing files or have other issues, so be sure to fix those before the next backup. If there are more significant issues you should consider doing an immediate Calibre UI backup so you have at least one reliable option. You can then test to see if other backups are in good shape. In any case a thorough investigation should be done to solve the source of the issue.
 
 ### Known limitation: rsync and external drive corruption
 
@@ -252,7 +260,7 @@ rsync can occasionally produce corrupt files when writing to external drives, pa
 ---
 
 ## `setup_calibreweb.sh`
-
+VE
 Sets up a fresh CalibreWeb installation or reinstalls into an existing venv while preserving configuration.
 
 ### Usage

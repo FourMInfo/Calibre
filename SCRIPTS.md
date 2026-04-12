@@ -234,11 +234,10 @@ Writing to a log is important — with 8500+ books the output is too large for t
 For a same-day snapshot you should see no real differences. Any `Only in live library` lines indicate books added since the snapshot was taken, which is expected.
 
 **Step 4 -- Compare integrity checks:**
-Since the 
-
+Since the integrity check ran the night before should be identical to the integrity check run on the preview, an additional test which compares the integrity checks is useful. Note we need to remove the path and only look at the book name, otherwise there will always be a difference.
 ```bash
-grep -o ': .*' ~/Code/FourM/Logs/calibre_integrity_TIMESTAMP_LIVE_SNAPSHOT | sort > /tmp/live_files.txt
-grep -o ': .*' ~/Code/FourM/Logs/calibre_integrity_TIMESTAMP_RESTORE_SNAPSHOT | sort > /tmp/backup_files.txt
+grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_RESTORE_TIMESTAMP.log | sort > /tmp/live_files.txt
+grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_LAST_BACKUP_TIMESTAMP.log | sort > /tmp/backup_files.txt
 diff /tmp/live_files.txt /tmp/backup_files.txt
 ```
 **Step 5 — If satisfied, restart:**

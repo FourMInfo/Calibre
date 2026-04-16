@@ -129,9 +129,9 @@ Logs are written to `~/Code/FourM/Logs/calibre_backup_YYYYMMDD_HHMMSS.log`.
 
 ## macOS Permissions
 
-The backup script requires **Full Disk Access** for `/usr/bin/rsync` and `/bin/bash` to write to external drives when run via launchd:
+The backup script requires **Full Disk Access** for `/path/to/bin/rclone`, `/usr/bin/rsync` and `/bin/bash` to write to external drives when run via launchd:
 
-**System Settings → Privacy & Security → Full Disk Access → Add `/usr/bin/rsync` and `/bin/bash`**
+**System Settings → Privacy & Security → Full Disk Access → Add `/path/to/bin/rclone`, `/usr/bin/rsync` and `/bin/bash`**
 
 Without this, launchd jobs will fail with `Operation not permitted` on external volumes.
 

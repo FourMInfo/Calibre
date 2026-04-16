@@ -38,12 +38,34 @@ Normally run automatically via launchd at 2am. Can be run manually at any time.
 2. Waits 60 seconds for clean database shutdown
 3. Verifies library exists and `metadata.db` is present
 4. Runs integrity check — results logged, never aborts backup
-5. rsyncs library to external drive with `--link-dest` deduplication
-6. rsyncs library to iCloud Documents with `--link-dest` deduplication
-7. Rotates snapshots: 7 dailies, 4 weeklies, 2 monthlies, 1 yearly
-8. Restarts CalibreWeb (via `start_calibreweb.sh`)
+5. rsyncs library to external drive with `--link-dest` hard-link deduplication
+6. rclone syncs library to iCloud with `--backup-dir` versioning
+7. Rotates external drive snapshots: 7 dailies, 4 weeklies, 2 monthlies, 1 yearly
+8. Prunes iCloud versions: keeps last 7 daily version folders
+9. Restarts CalibreWeb (via `start_calibreweb.sh`)
 
-### Rotation policy
+### Why two different tools for two destinations
+
+The external drive uses `rsync --link-dest` because it is a proper POSIX filesystem that supports hard links. Each snapshot is a full point-in-time copy of the library but costs only ~1GB incremental per day via hard-link deduplication.
+
+iCloud does not support hard links. Testing showed that `rsync --link-dest` on iCloud produces broken snapshots — all versions share inodes and mutate together, so every snapshot ends up reflecting the latest state rather than the state at creation time. `rclone` with `--backup-dir` avoids this: before each sync it moves changed and deleted files into a dated versions folder, giving genuine per-file recovery without relying on hard links.
+
+### iCloud backup structure
+
+```
+~/Documents/Backups/Calibre/
+    current/                    ← rolling mirror, always reflects last backup
+    versions/
+        daily.20260415_020000/  ← files changed or deleted on Apr 15
+        daily.20260414_020000/  ← files changed or deleted on Apr 14
+        ...                     (7 kept, older pruned)
+```
+
+`current/` is a complete copy of the library as of the last backup. Use this for a full iCloud restore.
+
+`versions/` folders contain only the files that changed or were deleted on that specific night — not full snapshots. Use these to recover a specific file that was good a few nights ago but has since been corrupted or deleted. To restore a specific file: find it in the appropriate version folder and copy it back manually.
+
+### External drive rotation policy
 
 | Type | Count | Promoted from | When |
 |------|-------|---------------|------|
@@ -52,12 +74,15 @@ Normally run automatically via launchd at 2am. Can be run manually at any time.
 | Monthly | 2 | Latest weekly | 1st of month |
 | Yearly | 1 | Latest monthly | Jan 1st |
 
+Weekly/monthly/yearly rotation is not done for iCloud because rclone version folders contain only deltas, not full snapshots — promoting a delta folder as a weekly would be misleading.
+
 ### Logs
 Timestamped logs written to `$LOG_DIR/calibre_backup_YYYYMMDD_HHMMSS.log`. Last 30 logs kept, older ones pruned automatically. If the external drive is not mounted, a `_WARNING.log` file is written instead.
 
 ### Dependencies
 - `stop_calibreweb.sh` and `start_calibreweb.sh` must be in `$SCRIPTS_DIR`
 - `calibre_check_integrity.sh` must be in `$SCRIPTS_DIR`
+- `rclone` must be installed: `brew install rclone`
 - `/usr/bin/rsync` must have Full Disk Access in System Settings
 - `/bin/bash` must have Full Disk Access in System Settings
 
@@ -88,6 +113,17 @@ If log directory is omitted, logs are written to the current directory.
 ### Notes
 - Python checker code is written to a temp file rather than a heredoc to avoid `set -e` being triggered by Python's non-zero exit on corrupt files
 - Last 30 integrity logs kept, older ones pruned automatically
+
+### Useful commands
+
+Extract just filenames from an integrity log and sort for comparison between two logs (strips path differences so only book names are compared):
+
+```bash
+# Compare two integrity logs by filename only (ignoring path differences)
+grep -o '[^/]*\.epub\|[^/]*\.pdf' log1.log | sort > /tmp/live.txt
+grep -o '[^/]*\.epub\|[^/]*\.pdf' log2.log | sort > /tmp/backup.txt
+diff /tmp/live.txt /tmp/backup.txt
+```
 
 ---
 
@@ -145,7 +181,7 @@ For each OPF file in a staging folder, finds the matching book in the Calibre li
 
 ## `calibre_restore_preview.sh`
 
-Lists available backup snapshots from all locations and rsyncs the chosen snapshot to a timestamped preview folder for manual review. Does **not** touch the live library.
+Lists available backup snapshots from all locations and copies the chosen snapshot to a timestamped preview folder for manual review. Does **not** touch the live library.
 
 ### Usage
 ```bash
@@ -153,20 +189,30 @@ Lists available backup snapshots from all locations and rsyncs the chosen snapsh
 ```
 
 ### What it does
-1. Lists all available snapshots from external drive, iCloud, and local backup machine external
+1. Lists all available snapshots: external drive snapshots, iCloud current, and iCloud version folders
 2. Stops CalibreWeb and Calibre
 3. Waits 60 seconds for clean shutdown
-4. rsyncs chosen snapshot to `/Volumes/Extreme/CalibreRestore/preview_<timestamp>_<snapshot>`
+4. Copies chosen snapshot to `/Volumes/Extreme/CalibreRestore/preview_<timestamp>_<snapshot>` (rsync for external drive snapshots, rclone for iCloud)
 5. Runs integrity check on the preview
 6. Leaves CalibreWeb stopped so you can switch library in Calibre app for manual review
 7. Saves preview path to `$LOG_DIR/.calibre_restore_preview_path` for use by finalize script
+
+### Snapshot types and when to use them
+
+| Source | Type | Use for |
+|--------|------|---------|
+| External drive daily/weekly/monthly/yearly | Full point-in-time snapshot | Primary restore option — complete library as of that date |
+| iCloud current | Full rolling mirror | Full restore from iCloud — complete library as of last backup |
+| iCloud versions/daily.* | Delta only | Per-file recovery only — NOT a full library snapshot |
+
+iCloud version folders contain only files that changed or were deleted on that specific night. Selecting one as a restore source will produce an incomplete preview containing only those delta files. The script warns you before proceeding if you select a version folder.
 
 ### After running
 1. Open Calibre app
 2. Switch library to the preview folder
 3. Review that everything looks correct
-4. If satisfied, run `calibre_restore_finalize.sh`. 
-5. If not satisfied, choose another snapshot to recover from.
+4. If satisfied, run `calibre_restore_finalize.sh`
+5. If not satisfied, choose another snapshot to recover from
 
 ---
 
@@ -198,13 +244,13 @@ Assuming you are restoring because you have a damaged library with metadata adde
 
 ## Testing a Restore
 
-As for any backup strategy, it is worth testing the process so you are confident it works and yoru backups are robust and complete. Here is the recommended testing strategy, which should be done at least once a quarter or after any significant event (hardware change, OS update, Calibre upgrade, cat knocks out external drive). Note too, that the full test should be done twice--once for the iCloud backup once for the external drive backup, althogh full tests can be done every other quarter:
+Regular restore testing is essential — an untested backup is a hypothesis, not a guarantee. Recommended schedule: full restore test quarterly or after any significant event (hardware change, OS update, Calibre upgrade, external drive incident). Monthly spot-check of a small subset (10-20 random books) is low-effort and catches snapshot-level problems early.
 
 **Step 1 — Run the preview:**
 ```bash
 ./calibre_restore_preview.sh
 ```
-Choose the most recent snapshot (in general the test should be run the morning after the nightly). The script will rsync it to a preview folder and run an integrity check.
+Choose the most recent external drive snapshot (in general the test should be run the morning after the nightly). The script will copy it to a preview folder and run an integrity check.
 
 **Step 2 — Clean up DS_Store files before comparing**
 
@@ -219,27 +265,28 @@ find `cat ~/Code/FourM/Logs/.calibre_restore_preview_path` -name ".DS_Store" -de
 
 **Step 3 — Compare preview to live library with full log:**
 ```bash
-~PREVIEW=`cat ~/Code/FourM/Logs/.calibre_restore_preview_path`
-LIBRARY="/Users/YOUR_USERNAME/Calibre Library"
+PREVIEW=`cat ~/Code/FourM/Logs/.calibre_restore_preview_path`
+LIBRARY="$HOME/Calibre Library"
 LOG="$HOME/Code/FourM/Logs/restore_diff_$(date +%Y%m%d).log"
 
 diff -rq "$LIBRARY" "$PREVIEW" > "$LOG" 2>&1
 echo "Exit code: $?"
 echo "Non-DS_Store differences:"
-grep -v ".DS_Store" "$LOG" | head -50 
+grep -v ".DS_Store" "$LOG" | head -50
 ```
 
 Writing to a log is important — with 8500+ books the output is too large for the terminal. The exit code `0` means identical, `1` means differences found. Check the log for any non-DS_Store differences — those are the ones that matter.
 
 For a same-day snapshot you should see no real differences. Any `Only in live library` lines indicate books added since the snapshot was taken, which is expected.
 
-**Step 4 -- Compare integrity checks:**
+**Step 4 — Compare integrity checks:**
 Since the integrity check ran the night before should be identical to the integrity check run on the preview, an additional test which compares the integrity checks is useful. Note we need to remove the path and only look at the book name, otherwise there will always be a difference.
 ```bash
 grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_RESTORE_TIMESTAMP.log | sort > /tmp/live_files.txt
 grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_LAST_BACKUP_TIMESTAMP.log | sort > /tmp/backup_files.txt
 diff /tmp/live_files.txt /tmp/backup_files.txt
 ```
+
 **Step 5 — If satisfied, restart:**
 Simply run `start_calibreweb.sh` to restart CalibreWeb without running `calibre_restore_finalize.sh`. The live library is untouched.
 
@@ -252,14 +299,14 @@ rsync can occasionally produce corrupt files when writing to external drives, pa
 
 - A file may be clean in the live library but corrupt in the external drive snapshot
 - The integrity check in the nightly backup catches this — corrupt files are logged
-- The iCloud snapshot is a separate rsync operation and may be clean where the external drive snapshot is corrupt, or vice versa
-- If you find a corrupt file in a restore preview, check the same file in the iCloud snapshot before concluding it is unrecoverable
+- The iCloud snapshot is a separate rclone operation and may be clean where the external drive snapshot is corrupt
+- If you find a corrupt file in a restore preview, check `iCloud current` before concluding it is unrecoverable
 - This is exactly why we maintain two independent backup destinations
 
 ---
 
 ## `setup_calibreweb.sh`
-VE
+
 Sets up a fresh CalibreWeb installation or reinstalls into an existing venv while preserving configuration.
 
 ### Usage
@@ -337,7 +384,7 @@ chmod +x install_calibre_backup_launchd.sh
 
 ### Notes
 - Uses `~/Library/LaunchAgents` (user agent) — requires login session, not system-level
-- Appropriate for a always-on Mac Mini where the user is always logged in
+- Appropriate for an always-on Mac Mini where the user is always logged in
 - Unloads existing job before reinstalling to ensure clean state
 
 ### To uninstall
@@ -398,3 +445,14 @@ launchd has a minimal PATH that doesn't include Homebrew. The start/stop scripts
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 ```
 If you see this error, re-run `setup_calibreweb.sh` to regenerate the start/stop scripts with the correct PATH.
+
+### iCloud backup interrupted (`Interrupted system call`)
+iCloud Drive can briefly pause file access while syncing to cloud, causing rclone to fail mid-operation. If the nightly log shows this error, rerun the iCloud step manually:
+```bash
+rclone sync "$HOME/Calibre Library/" "$HOME/Documents/Backups/Calibre/current/" \
+    --backup-dir "$HOME/Documents/Backups/Calibre/versions/daily.$(date +%Y%m%d_%H%M%S)" \
+    --exclude='.DS_Store' \
+    --exclude='.stfolder/**' \
+    -v
+```
+This is safe to rerun — rclone will resume from where it left off and only transfer what is missing.

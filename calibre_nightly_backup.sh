@@ -7,9 +7,14 @@
 #   2. Waits 60 seconds for clean shutdown
 #   3. Runs integrity check on library (logs corrupt files, does not abort)
 #   4. rsyncs library to external drive (with --link-dest deduplication)
-#   5. rsyncs snapshot to iCloud Documents folder
+#   5. rclone syncs library to iCloud (with --backup-dir versioning)
 #   6. Rotates snapshots: 7 dailies, 4 weeklies, 2 monthlies, 1 yearly
 #   7. Restarts CalibreWeb in tmux
+#
+# External drive uses rsync with hard-link deduplication (--link-dest).
+# iCloud uses rclone with --backup-dir versioning because iCloud does not
+# support hard links — rsync --link-dest produces broken snapshots on iCloud
+# where all versions share inodes and mutate together.
 #
 # Install as launchd job: use install_calibre_backup_launchd.sh
 #
@@ -36,6 +41,12 @@ SCRIPTS_DIR="$HOME/Code/FourM/Calibre"
 LOG_DIR="$HOME/Code/FourM/Logs"
 LOG_FILE="$LOG_DIR/calibre_backup_$(date +%Y%m%d_%H%M%S).log"
 
+# iCloud snapshot and versions directories
+# current/  — rolling mirror of live library (always up to date)
+# versions/ — files that were changed or deleted, organised by date
+ICLOUD_CURRENT="$ICLOUD_BACKUP/current"
+ICLOUD_VERSIONS="$ICLOUD_BACKUP/versions"
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
 
@@ -44,7 +55,8 @@ ts() { date +"%Y-%m-%d %H:%M:%S"; }
 ulimit -n 65536 2>/dev/null || true
 
 mkdir -p "$LOG_DIR"
-mkdir -p "$ICLOUD_BACKUP"
+mkdir -p "$ICLOUD_CURRENT"
+mkdir -p "$ICLOUD_VERSIONS"
 
 # Check external drive is mounted before proceeding
 HOST_DRIVE=$(dirname "$HOST_BACKUP")
@@ -67,7 +79,8 @@ echo "  $(ts)"
 echo "=========================================="
 echo ""
 
-# ── Helper: rotate snapshots ──────────────────────────────────────────────────
+# ── Helper: rotate snapshots (external drive only — uses hard links) ──────────
+# iCloud rotation is handled separately via rclone_rotate_icloud()
 rotate_snapshots() {
     local backup_root="$1"
     local is_remote="${2:-false}"
@@ -81,8 +94,6 @@ rotate_snapshots() {
         fi
     }
 
-    local now
-    now=$(date +%s)
     local dow
     dow=$(date +%u)  # 1=Monday 7=Sunday
     local dom
@@ -140,6 +151,23 @@ rotate_snapshots() {
     prune "weekly"  "$KEEP_WEEKLY"
     prune "monthly" "$KEEP_MONTHLY"
     prune "yearly"  "$KEEP_YEARLY"
+}
+
+# ── Helper: rotate iCloud versions (rclone-based, no hard links) ──────────────
+# iCloud versions are stored as dated folders under $ICLOUD_VERSIONS/
+# Each folder contains only the files that changed or were deleted that night.
+# Retention mirrors the external drive: KEEP_DAILY versions kept.
+# Weekly/monthly/yearly promotion is not done for iCloud versions since
+# each version folder contains only deltas, not full snapshots — promoting
+# a delta folder as a weekly would be misleading.
+rclone_rotate_icloud() {
+    local count
+    count=$(ls -1d "$ICLOUD_VERSIONS"/daily.* 2>/dev/null | wc -l | tr -d ' \n' || echo "0")
+    if [[ "$count" -gt "$KEEP_DAILY" ]]; then
+        local to_delete=$(( count - KEEP_DAILY ))
+        ls -1d "$ICLOUD_VERSIONS"/daily.* 2>/dev/null | sort | head -"$to_delete" | xargs rm -rf || true
+        echo "  → Pruned $to_delete old iCloud version(s)"
+    fi
 }
 
 # ── Step 1: Stop CalibreWeb and Calibre ───────────────────────────────────────
@@ -207,26 +235,27 @@ else
 fi
 echo ""
 
-# ── Step 5: rsync to iCloud ───────────────────────────────────────────────────
+# ── Step 5: rclone to iCloud ──────────────────────────────────────────────────
+# rclone sync mirrors the live library to iCloud/current/
+# --backup-dir moves changed/deleted files to a dated versions folder
+# before overwriting, giving point-in-time recovery without hard links.
+# iCloud does not support hard links so rsync --link-dest is not used here.
 echo "$(ts) [ 5/7 ] Backing up to iCloud..."
 
-# Increase file descriptor limit for large library rsync
-ulimit -n 65536 2>/dev/null || true
+ICLOUD_VERSION_DIR="$ICLOUD_VERSIONS/daily.$(date +%Y%m%d_%H%M%S)"
 
-ICLOUD_LAST=$(find "$ICLOUD_BACKUP" -maxdepth 1 -type d \( -name "daily.*" -o -name "weekly.*" -o -name "monthly.*" -o -name "yearly.*" \) 2>/dev/null | sort | tail -1 || true)
+rclone sync "$LIBRARY/" "$ICLOUD_CURRENT/" \
+    --backup-dir "$ICLOUD_VERSION_DIR" \
+    --exclude='.DS_Store' \
+    --exclude='.stfolder/**' \
+    -v \
+    2>&1 | grep -v "^$" || true
 
-if [[ -n "$ICLOUD_LAST" ]]; then
-    echo "  Using --link-dest: $ICLOUD_LAST"
-    rsync -aH --delete --exclude='.DS_Store' --link-dest="$ICLOUD_LAST" "$LIBRARY/" "$ICLOUD_BACKUP/$SNAPSHOT_NAME/"
-else
-    echo "  No previous snapshot found in iCloud — full backup"
-    rsync -aH --delete --exclude='.DS_Store' "$LIBRARY/" "$ICLOUD_BACKUP/$SNAPSHOT_NAME/"
-fi
-
-echo "  ✓ iCloud backup complete"
+echo "  ✓ iCloud backup complete: $ICLOUD_CURRENT"
+echo "  ✓ Changed/deleted files versioned to: $ICLOUD_VERSION_DIR"
 echo ""
 
-# ── Step 7: Rotate snapshots ─────────────────────────────────────────────────
+# ── Step 6: Rotate snapshots ─────────────────────────────────────────────────
 echo "$(ts) [ 6/7 ] Rotating snapshots..."
 
 if [[ "$HOST_MOUNTED" == "true" ]]; then
@@ -236,13 +265,13 @@ else
     echo "  External drive: skipped (drive not mounted)"
 fi
 
-echo "  iCloud:"
-rotate_snapshots "$ICLOUD_BACKUP" "false"
+echo "  iCloud versions:"
+rclone_rotate_icloud
 
 echo "  ✓ Rotation complete"
 echo ""
 
-# ── Step 8: Restart CalibreWeb ────────────────────────────────────────────────
+# ── Step 7: Restart CalibreWeb ────────────────────────────────────────────────
 echo "$(ts) [ 7/7 ] Restarting CalibreWeb..."
 
 if [[ -f "$SCRIPTS_DIR/start_calibreweb.sh" ]]; then

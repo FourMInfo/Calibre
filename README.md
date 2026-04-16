@@ -8,7 +8,7 @@ These scripts were written under the FourM identity namespace and are designed t
 
 ## Background
 
-This toolset was born out of a library corruption event that threatened 900+ hours of curation work across 8,500+ books. The recovery process exposed several weaknesses in Calibre's built-in backup/restore mechanism and led to building a more robust, transparent backup architecture based on `rsync` with hard-link deduplication.
+This toolset was born out of a library corruption event that threatened 900+ hours of curation work across 8,500+ books. The recovery process exposed several weaknesses in Calibre's built-in backup/restore mechanism and led to building a more robust, transparent backup architecture based on `rsync` with hard-link deduplication for local snapshots and `rclone` with versioning for iCloud.
 
 See [SCRIPTS.md](SCRIPTS.md) for detailed documentation of each script including design decisions and known issues encountered during development.
 
@@ -24,9 +24,11 @@ Live library: ~/Calibre Library (internal disk)
      │   Hard-link deduplication via --link-dest
      │   ~1GB per day incremental on a 190GB library
      │
-     ├── Nightly rsync snapshots ──► ~/Documents/Backups/Calibre/ (iCloud)
-     │   Same rotation policy
+     ├── Nightly rclone sync ──────► ~/Documents/Backups/Calibre/ (iCloud)
+     │   current/   — rolling mirror, always reflects last backup
+     │   versions/  — dated delta folders of changed/deleted files (7 kept)
      │   Syncs to iCloud automatically
+     │   rclone used instead of rsync because iCloud does not support hard links
      │
      └── Syncthing live mirror ────► local backup machine internal disk
          Continuous, best-effort, same-day recovery
@@ -36,9 +38,10 @@ Live library: ~/Calibre Library (internal disk)
 
 **Recovery options in order of speed:**
 1. Local backup machine (Syncthing) — same-day work preserved
-2. Last nightly on external drive — known good, previous night
-3. iCloud snapshots — offsite, same rotation
-4. Sync.com cloud — ultimate offsite fallback
+2. Last nightly on external drive — known good, previous night, full point-in-time snapshot
+3. iCloud current — offsite full mirror, always reflects last backup
+4. iCloud versions — offsite per-file recovery for recently changed/deleted files
+5. Sync.com cloud — ultimate offsite fallback
 
 ---
 
@@ -68,6 +71,7 @@ Live library: ~/Calibre Library (internal disk)
 - Python 3.12 (for CalibreWeb)
 - `poppler` for PDF integrity checking: `brew install poppler`
 - `tmux` for CalibreWeb session management: `brew install tmux`
+- `rclone` for iCloud versioned backup: `brew install rclone`
 - `rsync` (included with macOS)
 - Calibre desktop app installed at `/Applications/calibre.app`
 
@@ -99,7 +103,7 @@ Then start it:
 
 ### Setting up nightly backups
 
-Edit the config section at the top of `calibre_nightly_backup.sh` to set your paths, then install the launchd agent:
+Install the launchd agent:
 
 ```bash
 chmod +x install_calibre_backup_launchd.sh
@@ -135,9 +139,11 @@ Without this, launchd jobs will fail with `Operation not permitted` on external 
 
 ## Key Design Decisions
 
-**Hard-link deduplication** — `rsync --link-dest` creates snapshots where unchanged files are hard links to the previous snapshot rather than copies. A 190GB library with daily changes costs ~1GB per additional snapshot rather than 190GB. Deleting an old snapshot only frees space for files that exist exclusively in that snapshot.
+**Hard-link deduplication (external drive)** — `rsync --link-dest` creates snapshots where unchanged files are hard links to the previous snapshot rather than copies. A 190GB library with daily changes costs ~1GB per additional snapshot rather than 190GB. Deleting an old snapshot only frees space for files that exist exclusively in that snapshot.
 
-**No compression** — snapshots are raw files in Calibre's native folder structure. Any file can be dragged out of a snapshot in Finder or restored with a simple `cp -R`. No special tools needed.
+**rclone with --backup-dir (iCloud)** — iCloud Drive does not support hard links. Using `rsync --link-dest` on iCloud produces broken snapshots where all versions share inodes and mutate together — every snapshot ends up reflecting the latest state rather than the state at creation time. rclone's `--backup-dir` solves this: before each sync it moves changed and deleted files into a dated versions folder, giving genuine point-in-time recovery for individual files without relying on hard links.
+
+**No compression** — snapshots are raw files in Calibre's native folder structure. Any file can be dragged out of a snapshot in Finder or restored with a simple `cp -R` or `rclone sync`. No special tools needed.
 
 **Bash 3.2 compatibility** — macOS ships with bash 3.2 (due to GPL licensing). All scripts avoid bash 4+ features: no `declare -A`, no `${var,,}` lowercase, no `mapfile`. Associative arrays are replaced with sorted temp files and `grep`.
 

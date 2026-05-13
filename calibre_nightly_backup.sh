@@ -59,7 +59,7 @@ mkdir -p "$ICLOUD_CURRENT"
 mkdir -p "$ICLOUD_VERSIONS"
 
 # Check external drive is mounted before proceeding
-HOST_DRIVE=$(dirname "$HOST_BACKUP")
+HOST_DRIVE=$(echo "$HOST_BACKUP" | cut -d'/' -f1-3)
 if [[ ! -d "$HOST_DRIVE" ]]; then
     # Log to a fallback log since main log dir may also be on external
     WARN_LOG="$LOG_DIR/calibre_backup_$(date +%Y%m%d_%H%M%S)_WARNING.log"
@@ -217,8 +217,11 @@ echo "$(ts) [ 4/7 ] Backing up to external drive..."
 SNAPSHOT_NAME="daily.$(date +%Y%m%d_%H%M%S)"
 HOST_SNAPSHOT="$HOST_BACKUP/$SNAPSHOT_NAME"
 
-if [[ "$HOST_MOUNTED" == "false" ]]; then
+# Re-verify drive is still mounted immediately before rsync
+# (it may have been present at startup but disconnected during shutdown wait)
+if [[ ! -d "$HOST_DRIVE" ]] || [[ ! -d "$(dirname "$HOST_BACKUP")" ]]; then
     echo "  ⚠ External drive not mounted — skipping external backup"
+    HOST_MOUNTED=false
 else
     # Find last snapshot for --link-dest (safe glob — no error if none exist yet)
     HOST_LAST=$(find "$HOST_BACKUP" -maxdepth 1 -type d \( -name "daily.*" -o -name "weekly.*" -o -name "monthly.*" -o -name "yearly.*" \) 2>/dev/null | sort | tail -1 || true)

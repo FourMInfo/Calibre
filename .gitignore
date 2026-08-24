@@ -1,6 +1,10 @@
 # Local machine configuration — contains sensitive paths and hostnames
-# Copy config.sh.example to config.sh and fill in your values
-config.sh
+# Copy config.sh.example to config.sh and fill in your values.
+# The glob also covers hand-carried copies like config.sh.20260824 or
+# config.sh.ptah. The negation must stay last, or the template gets caught too.
+config.sh*
+.config.sh*
+!config.sh.example
 
 # Temporary files
 *.bak

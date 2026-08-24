@@ -3,10 +3,10 @@
 # Sets up CalibreWeb in a Python 3.12 venv
 #
 # What this script does:
-#   1. Creates venv at ~/Code/venv using Python 3.12
+#   1. Creates the venv at the location config.sh gives for VENV_DIR
 #   2. Installs calibreweb and optional features via pip
-#   3. Configures port and SSL certificates in app.db
-#   4. Creates a start/stop script for use with tmux
+#   3. Configures port, library path and SSL certificates in app.db
+#   4. Makes the repo's start/stop scripts executable
 #
 # Usage:
 #   chmod +x setup_calibreweb.sh
@@ -15,20 +15,35 @@
 set -euo pipefail
 
 # ── Load local config ─────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ ! -f "$SCRIPT_DIR/config.sh" ]]; then
-    echo "ERROR: config.sh not found at $SCRIPT_DIR/config.sh"
+# SCRIPT_DIR has to be derived here because it is what locates config.sh.
+# config.sh may override it; if it doesn't, this script's own directory wins.
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$_self_dir/config.sh" ]]; then
+    echo "ERROR: config.sh not found at $_self_dir/config.sh"
     echo "  Copy config.sh.example to config.sh and fill in your values."
     exit 1
 fi
-source "$SCRIPT_DIR/config.sh"
+source "$_self_dir/config.sh"
+SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 
-# ── Derived paths (not in config) ─────────────────────────────────────────────
-VENV_PARENT="$HOME/Code/venv"
-VENV_DIR="$VENV_PARENT/calibre-web-env"
-CALIBRE_WEB_CONFIG="$HOME/.calibre-web"
-LIBRARY_PATH="$HOME/Calibre Library"
-SCRIPTS_DIR="$HOME/Code/FourM/Calibre"
+# ── Validate config ───────────────────────────────────────────────────────────
+# Under `set -u` a missing key would surface as a bare "unbound variable" part
+# way through the install. Check up front and name what is actually missing.
+missing_keys=""
+for key in VENV_DIR CALIBRE_WEB_CONFIG LIBRARY PORT CERT_FILE KEY_FILE CALIBRE_HOST TMUX_SESSION; do
+    if [[ -z "${!key:-}" ]]; then
+        missing_keys="$missing_keys $key"
+    fi
+done
+if [[ -n "$missing_keys" ]]; then
+    echo "ERROR: config.sh is missing required key(s):$missing_keys"
+    echo "  Compare your config.sh against config.sh.example and add them."
+    exit 1
+fi
+
+# The venv's parent is wherever VENV_DIR points, so there is nothing extra to
+# configure — one key, one source of truth.
+VENV_PARENT="$(dirname "$VENV_DIR")"
 
 # ── Python path (try common locations) ───────────────────────────────────────
 PYTHON="/usr/local/bin/python3.12"
@@ -58,7 +73,7 @@ fi
 echo "  Python   : $PYTHON ($($PYTHON --version))"
 echo "  Venv     : $VENV_DIR"
 echo "  Config   : $CALIBRE_WEB_CONFIG"
-echo "  Library  : $LIBRARY_PATH"
+echo "  Library  : $LIBRARY"
 echo "  Port     : $PORT"
 echo "  Cert     : $CERT_FILE"
 echo "  Key      : $KEY_FILE"
@@ -73,8 +88,8 @@ if [[ ! -f "$KEY_FILE" ]]; then
     echo "WARNING: Key not found at $KEY_FILE"
 fi
 
-if [[ ! -d "$LIBRARY_PATH" ]]; then
-    echo "WARNING: Library not found at $LIBRARY_PATH"
+if [[ ! -d "$LIBRARY" ]]; then
+    echo "WARNING: Library not found at $LIBRARY"
     echo "  You will need to set the library path manually in the CalibreWeb UI."
 fi
 
@@ -178,7 +193,7 @@ configure_appdb() {
     }
 
     update_setting "Port" "config_port" "$PORT"
-    update_setting "Calibre library path" "config_calibre_dir" "$LIBRARY_PATH"
+    update_setting "Calibre library path" "config_calibre_dir" "$LIBRARY"
     update_setting "SSL certificate file" "config_certfile" "$CERT_FILE"
     update_setting "SSL key file" "config_keyfile" "$KEY_FILE"
 
@@ -241,90 +256,30 @@ else
     fi
 fi
 
-# ── Create start script ───────────────────────────────────────────────────────
+# ── Start/stop scripts ────────────────────────────────────────────────────────
+# These used to be written out here from heredocs. They are not any more:
+# start_calibreweb.sh and stop_calibreweb.sh are maintained files in this repo,
+# and generating them meant a second copy that silently drifted from the real
+# one — and running setup on an existing install would overwrite the good
+# version with the stale embedded one. Now setup just makes sure they are
+# present and executable.
 echo ""
-echo "Creating start/stop scripts..."
-mkdir -p "$SCRIPTS_DIR"
+echo "Checking start/stop scripts..."
 
-cat > "$SCRIPTS_DIR/start_calibreweb.sh" << 'STARTSCRIPT'
-#!/usr/bin/env bash
-# start_calibreweb.sh
-# Starts CalibreWeb inside a tmux session called "calibreweb"
-# Attach with: tmux attach -t calibreweb
-
-# Add both Intel and Apple Silicon brew paths for portability
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/config.sh"
-VENV_DIR="$HOME/Code/venv/calibre-web-env"
-SESSION="calibreweb"
-
-# Check if cps process is actually running (not just tmux session)
-if pgrep -f "cps" > /dev/null; then
-    echo "CalibreWeb is already running"
-    echo "Attach with: tmux attach -t $SESSION"
-    exit 0
-fi
-
-# Kill stale tmux session if it exists without cps running
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "Stale tmux session found — cleaning up..."
-    tmux kill-session -t "$SESSION"
-fi
-
-echo "Starting CalibreWeb..."
-tmux new-session -d -s "$SESSION"
-tmux send-keys -t "$SESSION" "source $VENV_DIR/bin/activate && cps" Enter
-echo "✓ CalibreWeb started in tmux session '$SESSION'"
-echo "  Attach with: tmux attach -t $SESSION"
-echo "  Access at:   $CALIBRE_HOST"
-STARTSCRIPT
-
-cat > "$SCRIPTS_DIR/stop_calibreweb.sh" << 'STOPSCRIPT'
-#!/usr/bin/env bash
-# stop_calibreweb.sh
-# Gracefully stops CalibreWeb, Calibre app and all Calibre processes
-
-# Add both Intel and Apple Silicon brew paths for portability
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-
-SESSION="calibreweb"
-
-# SIGTERM the cps process
-if pgrep -f "cps" > /dev/null; then
-    echo "Stopping CalibreWeb (SIGTERM)..."
-    pkill -TERM -f "cps" || true
-    sleep 5
-    # Force kill if still running
-    if pgrep -f "cps" > /dev/null; then
-        echo "Force killing CalibreWeb..."
-        pkill -KILL -f "cps" || true
+missing_scripts=""
+for s in start_calibreweb.sh stop_calibreweb.sh; do
+    if [[ -f "$SCRIPT_DIR/$s" ]]; then
+        chmod +x "$SCRIPT_DIR/$s"
+        echo "  ✓ $s"
+    else
+        missing_scripts="$missing_scripts $s"
     fi
-    echo "✓ CalibreWeb stopped"
-else
-    echo "CalibreWeb is not running"
-fi
+done
 
-# Kill tmux session if exists
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-    tmux kill-session -t "$SESSION"
-    echo "✓ tmux session '$SESSION' closed"
+if [[ -n "$missing_scripts" ]]; then
+    echo "  ⚠ Missing from $SCRIPT_DIR:$missing_scripts"
+    echo "    These ship with the repo — check your clone is complete."
 fi
-
-# Kill Calibre app and worker processes
-if pgrep -f "calibre" > /dev/null; then
-    echo "Stopping Calibre..."
-    killall calibre 2>/dev/null || true
-    killall calibre-parallel 2>/dev/null || true
-    echo "✓ Calibre stopped"
-fi
-STOPSCRIPT
-
-chmod +x "$SCRIPTS_DIR/start_calibreweb.sh"
-chmod +x "$SCRIPTS_DIR/stop_calibreweb.sh"
-echo "  ✓ start_calibreweb.sh created at $SCRIPTS_DIR"
-echo "  ✓ stop_calibreweb.sh created at $SCRIPTS_DIR"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
@@ -332,9 +287,9 @@ echo "=========================================="
 echo "  Setup complete."
 echo "=========================================="
 echo ""
-echo "  Start CalibreWeb : $SCRIPTS_DIR/start_calibreweb.sh"
-echo "  Stop CalibreWeb  : $SCRIPTS_DIR/stop_calibreweb.sh"
-echo "  Attach to tmux   : tmux attach -t calibreweb"
+echo "  Start CalibreWeb : $SCRIPT_DIR/start_calibreweb.sh"
+echo "  Stop CalibreWeb  : $SCRIPT_DIR/stop_calibreweb.sh"
+echo "  Attach to tmux   : tmux attach -t $TMUX_SESSION"
 echo ""
 echo "  On first run, log in at $CALIBRE_HOST"
 echo "  Default credentials: admin / admin123"

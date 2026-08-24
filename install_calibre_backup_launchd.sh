@@ -11,11 +11,19 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$HOME/Code/FourM/Calibre"
-PLIST_SRC="$SCRIPTS_DIR/info.fourm.calibre-backup.plist"
+# ── Load local config ─────────────────────────────────────────────────────────
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$_self_dir/config.sh" ]]; then
+    echo "ERROR: config.sh not found at $_self_dir/config.sh"
+    echo "  Copy config.sh.example to config.sh and fill in your values."
+    exit 1
+fi
+source "$_self_dir/config.sh"
+SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
+
+PLIST_SRC="$SCRIPT_DIR/info.fourm.calibre-backup.plist"
 PLIST_DEST="$HOME/Library/LaunchAgents/info.fourm.calibre-backup.plist"
-BACKUP_SCRIPT="$SCRIPTS_DIR/calibre_nightly_backup.sh"
-LOG_DIR="$HOME/Code/FourM/Logs"
+BACKUP_SCRIPT="$SCRIPT_DIR/calibre_nightly_backup.sh"
 LABEL="info.fourm.calibre-backup"
 DOMAIN="gui/$(id -u)"
 
@@ -49,9 +57,16 @@ mkdir -p "$HOME/Library/LaunchAgents"
 echo "  Booting out any existing job (harmless if none is loaded)..."
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 
-# Copy plist to LaunchAgents and substitute YOUR_USERNAME with actual username
-sed "s/YOUR_USERNAME/$USER/g" "$PLIST_SRC" > "$PLIST_DEST"
+# Write the plist with the real script path substituted in. The template ships
+# with a __BACKUP_SCRIPT__ placeholder rather than a hardcoded path so the job
+# always points at wherever this repo actually lives — a plist that assumed
+# ~/Code/FourM/Calibre would silently run nothing if the repo were cloned
+# anywhere else. Substitution is done with bash's own ${var//pat/repl} rather
+# than sed so that / and & in the path need no escaping.
+plist_template="$(cat "$PLIST_SRC")"
+printf '%s\n' "${plist_template//__BACKUP_SCRIPT__/$BACKUP_SCRIPT}" > "$PLIST_DEST"
 echo "  ✓ Plist installed to $PLIST_DEST"
+echo "    Runs: $BACKUP_SCRIPT"
 
 # Load the job
 launchctl bootstrap "$DOMAIN" "$PLIST_DEST"

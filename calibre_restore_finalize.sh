@@ -16,18 +16,34 @@
 set -euo pipefail
 
 # ── Load local config ─────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ ! -f "$SCRIPT_DIR/config.sh" ]]; then
-    echo "ERROR: config.sh not found at $SCRIPT_DIR/config.sh"
+# SCRIPT_DIR has to be derived here because it is what locates config.sh.
+# config.sh may override it; if it doesn't, this script's own directory wins.
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$_self_dir/config.sh" ]]; then
+    echo "ERROR: config.sh not found at $_self_dir/config.sh"
     echo "  Copy config.sh.example to config.sh and fill in your values."
     exit 1
 fi
-source "$SCRIPT_DIR/config.sh"
+source "$_self_dir/config.sh"
+SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 
-# ── Derived paths (not in config) ─────────────────────────────────────────────
-LIBRARY="$HOME/Calibre Library"
-SCRIPTS_DIR="$HOME/Code/FourM/Calibre"
-LOG_DIR="$HOME/Code/FourM/Logs"
+# ── Validate config ───────────────────────────────────────────────────────────
+# This script deletes the live library, so a missing key has to stop it here —
+# before any confirmation prompt — rather than surface as an unbound variable
+# partway through the replace.
+missing_keys=""
+for key in LIBRARY LOG_DIR VENV_DIR HOST_BACKUP; do
+    if [[ -z "${!key:-}" ]]; then
+        missing_keys="$missing_keys $key"
+    fi
+done
+if [[ -n "$missing_keys" ]]; then
+    echo "ERROR: config.sh is missing required key(s):$missing_keys"
+    echo "  Compare your config.sh against config.sh.example and add them."
+    exit 1
+fi
+
+# Written by calibre_restore_preview.sh — the two scripts must agree on this.
 PREVIEW_PATH_FILE="$LOG_DIR/.calibre_restore_preview_path"
 
 echo "=========================================="
@@ -109,12 +125,12 @@ echo ""
 
 # ── Step 5: Restart CalibreWeb ────────────────────────────────────────────────
 echo "[ 5/5 ] Restarting CalibreWeb..."
-if [[ -f "$SCRIPTS_DIR/start_calibreweb.sh" ]]; then
-    bash "$SCRIPTS_DIR/start_calibreweb.sh"
+if [[ -f "$SCRIPT_DIR/start_calibreweb.sh" ]]; then
+    bash "$SCRIPT_DIR/start_calibreweb.sh"
     echo "  ✓ CalibreWeb restarted"
 else
     echo "  ⚠ start_calibreweb.sh not found"
-    echo "    Start manually with: source $HOME/Code/venv/calibre-web-env/bin/activate && cps &"
+    echo "    Start manually with: source $VENV_DIR/bin/activate && cps &"
 fi
 
 # Clean up preview path file

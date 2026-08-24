@@ -123,7 +123,7 @@ launchctl list | grep calibre
 ./calibre_nightly_backup.sh
 ```
 
-Logs are written to `~/Code/FourM/Logs/calibre_backup_YYYYMMDD_HHMMSS.log`.
+Logs are written to `$LOG_DIR/calibre_backup_YYYYMMDD_HHMMSS.log`.
 
 ---
 
@@ -162,6 +162,9 @@ cp config.sh.example config.sh
 Key values to set:
 
 ```bash
+LIBRARY="$HOME/Calibre Library"
+LOG_DIR="$HOME/path/to/Logs"
+VENV_DIR="$HOME/path/to/venv/calibre-web-env"
 HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
 ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
 CALIBRE_HOST="https://your-calibre-domain:YOUR_PORT"
@@ -170,7 +173,22 @@ CERT_FILE="$HOME/path/to/your_cert.pem"
 KEY_FILE="$HOME/path/to/your_key.key"
 ```
 
-Paths that use `$HOME` (library location, venv, scripts dir, log dir) are derived automatically and don't need to be in `config.sh`.
+See `config.sh.example` for the full list, including `CALIBREDB`,
+`CALIBRE_WEB_CONFIG`, `TMUX_SESSION` and the retention counts.
+
+**Every path a script needs lives here, including the ones under `$HOME`.**
+They used to be derived inside each script, on the grounds that a `$HOME` path
+gives nothing away — which is true, but it meant the same location was spelled
+out in four or five places and changing one of them meant hunting down the
+rest. One definition per path is one place to change it and one place for it
+to be wrong. `$HOME` is still expanded at runtime, so no username is ever
+written down.
+
+The one exception is `SCRIPT_DIR`. Each script derives its own directory,
+because that is what it uses to *find* `config.sh` — it cannot come from the
+file it is used to locate. Set `SCRIPT_DIR` in `config.sh` anyway if you want
+to override it; scripts honour it when present and fall back to their own
+directory when it isn't.
 
 ---
 

@@ -4,10 +4,11 @@
 # (including OPF metadata) missing from the destination.
 #
 # Usage:
-#   ./calibre_sync.sh /path/to/source /path/to/destination [/path/to/staging]
+#   ./calibre_sync.sh /path/to/source [/path/to/destination] [/path/to/staging]
 #
-# SOURCE is read-only. Missing book folders are copied to STAGING if provided,
-# otherwise directly into DEST preserving Calibre's Author/Title structure.
+# SOURCE is read-only. DEST defaults to LIBRARY in config.sh. Missing book
+# folders are copied to STAGING if provided, otherwise directly into DEST
+# preserving Calibre's Author/Title structure.
 # Compatible with bash 3.2 (default on macOS)
 
 set -euo pipefail
@@ -15,18 +16,38 @@ set -euo pipefail
 # Add both Intel and Apple Silicon brew paths for portability
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
-# ── Arguments ────────────────────────────────────────────────────────────────
+# ── Load local config ─────────────────────────────────────────────────────────
+# SCRIPT_DIR has to be derived here because it is what locates config.sh.
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$_self_dir/config.sh" ]]; then
+    echo "ERROR: config.sh not found at $_self_dir/config.sh"
+    echo "  Copy config.sh.example to config.sh and fill in your values."
+    exit 1
+fi
+source "$_self_dir/config.sh"
+
+# ── Arguments (DEST falls back to config) ────────────────────────────────────
+# SOURCE has no sensible default — it is whatever old or damaged library you
+# are recovering from, so it always has to be named. DEST is almost always the
+# live library, so it falls back to LIBRARY in config.sh.
 SOURCE="${1:-}"
-DEST="${2:-}"
+DEST="${2:-${LIBRARY:-}}"
 STAGING="${3:-}"
 
 if [[ -z "$SOURCE" || -z "$DEST" ]]; then
-    echo "Usage: $0 /path/to/source /path/to/destination [/path/to/staging]"
+    echo "Usage: $0 /path/to/source [/path/to/destination] [/path/to/staging]"
     echo ""
     echo "  SOURCE:  your old/damaged library (read-only, never modified)"
     echo "  DEST:    your restored library (used for comparison)"
+    echo "           Defaults to LIBRARY in config.sh."
     echo "  STAGING: optional folder to copy missing book folders into"
     echo "           If omitted, copies directly into DEST."
+    exit 1
+fi
+
+if [[ -z "${LOG_DIR:-}" || -z "${KEEP_LOGS:-}" ]]; then
+    echo "ERROR: config.sh is missing LOG_DIR and/or KEEP_LOGS."
+    echo "  Compare your config.sh against config.sh.example and add them."
     exit 1
 fi
 
@@ -48,7 +69,13 @@ else
 fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-LOG_FILE="$(pwd)/calibre_sync_$(date +%Y%m%d_%H%M%S).log"
+# The log goes to LOG_DIR with the same dated-and-pruned naming every other
+# script in this repo uses. It used to land in whatever directory you happened
+# to be standing in, which scattered logs around and left them to accumulate
+# forever with nothing rotating them out.
+mkdir -p "$LOG_DIR"
+LOG_PREFIX="calibre_sync"
+LOG_FILE="$LOG_DIR/${LOG_PREFIX}_$(date +%Y%m%d_%H%M%S).log"
 EXTENSIONS=("epub" "pdf" "mobi" "azw" "azw3" "djvu" "cbz" "cbr" "fb2" "txt" "html" "rtf" "lit" "lrf" "pdb" "zip")
 
 echo "=========================================="
@@ -191,4 +218,15 @@ if [[ -n "$STAGING" ]]; then
 else
     echo "Next step: In Calibre, use 'Add books from folders' pointing at"
     echo "the newly copied folders to rebuild metadata entries."
+fi
+
+# ── Log rotation ──────────────────────────────────────────────────────────────
+# `ls` exits nonzero when the glob matches nothing, and under `pipefail` that
+# would fail the assignment and abort the script, so run it in a brace group
+# that swallows the status. `|| echo "0"` would be worse than useless here:
+# `tr` has already emitted its own "0", so the two concatenate into "00".
+log_count=$( { ls -1 "$LOG_DIR"/${LOG_PREFIX}_*.log 2>/dev/null || true; } | wc -l | tr -d ' \n')
+if [[ "$log_count" -gt "$KEEP_LOGS" ]]; then
+    to_delete=$(( log_count - KEEP_LOGS ))
+    ls -1 "$LOG_DIR"/${LOG_PREFIX}_*.log | sort | head -"$to_delete" | xargs rm -f
 fi

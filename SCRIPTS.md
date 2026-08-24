@@ -12,12 +12,17 @@ Template for local machine configuration. Copy to `config.sh` (gitignored) and f
 cp config.sh.example config.sh
 ```
 
-Scripts that need machine-specific values source `config.sh` automatically via:
+**Every** script sources `config.sh`, using the same three lines at the top:
+
 ```bash
-source "$(dirname "$0")/config.sh"
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+[[ -f "$_self_dir/config.sh" ]] || { echo "ERROR: config.sh not found"; exit 1; }
+source "$_self_dir/config.sh"
 ```
 
-The utility scripts (`calibre_sync.sh`, `calibre_check_integrity.sh`, `calibre_update_metadata.sh`) take all paths as arguments so they don't require `config.sh`.
+`_self_dir` is derived rather than configured because it is what *finds* `config.sh` — it cannot come from the file it locates. Scripts that need a script directory afterwards do `SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"`, so a `SCRIPT_DIR` set in `config.sh` wins and the script's own directory is the fallback.
+
+The utility scripts (`calibre_sync.sh`, `calibre_check_integrity.sh`, `calibre_update_metadata.sh`) used to take every path as an argument and skip `config.sh` entirely. They now require it like everything else, and their arguments fall back to config values where a sensible default exists. Arguments still win when supplied, which is what the scripts that call each other rely on. If you are running one of these from a bare clone, copy `config.sh.example` to `config.sh` first even if you intend to pass all paths explicitly.
 
 ---
 
@@ -77,11 +82,36 @@ iCloud does not support hard links. Testing showed that `rsync --link-dest` on i
 Weekly/monthly/yearly rotation is not done for iCloud because rclone version folders contain only deltas, not full snapshots — promoting a delta folder as a weekly would be misleading.
 
 ### Logs
-Timestamped logs written to `$LOG_DIR/calibre_backup_YYYYMMDD_HHMMSS.log`. Last 30 logs kept, older ones pruned automatically. If the external drive is not mounted, a `_WARNING.log` file is written instead.
+Timestamped logs written to `$LOG_DIR/calibre_backup_YYYYMMDD_HHMMSS.log`. Last `$KEEP_LOGS` logs kept, older ones pruned automatically.
+
+Two extra marker logs may be written *alongside* the main log, so a glance at `ls $LOG_DIR` tells you the outcome without opening anything:
+
+| File | Meaning |
+|------|---------|
+| `..._WARNING.log` | External drive was not mounted — the iCloud backup still ran |
+| `..._FAILED.log` | One or more steps failed; the file names which ones |
+
+The warning log is written *before* the main log is even opened, because `$LOG_DIR` could itself have been on the missing drive. The failure log is written last and the script exits 1.
+
+A failing step records itself via `note_failure` and the script carries on, so a broken rsync does not cost you the iCloud sync or the restart of CalibreWeb — the partial backup is still worth having. Rotation runs *before* the failure marker is written, so today's `_FAILED.log` is never the file that gets pruned. Note that all three names match the `calibre_backup_*.log` glob, so a `_WARNING.log` or `_FAILED.log` counts against `$KEEP_LOGS` like any other.
+
+### Mount detection
+
+Whether the external drive is present is decided with:
+
+```bash
+mount | grep -qF " on $HOST_DRIVE ("
+```
+
+not with `[[ -d "$HOST_DRIVE" ]]`. On a clean unmount `diskarbitrationd` removes the mountpoint directory, so the directory test usually works — but after an unclean ejection an empty `/Volumes/Extreme` can be left behind on the internal disk, and the directory test would then happily rsync 190GB of library into it. `grep -F` keeps the pattern literal so a drive name containing regex characters is safe, and the trailing `(` stops `/Volumes/Extreme` from matching `/Volumes/Extreme2`.
+
+`HOST_DRIVE` is derived from `HOST_BACKUP` rather than configured separately, so there is no way for the two to disagree.
+
+Two separate flags are tracked: `HOST_MOUNTED` (is the drive there at all) and `HOST_BACKUP_OK` (did the rsync actually succeed). Snapshot rotation is gated on the second, so a failed rsync can never cause a half-written snapshot to be promoted to weekly and a known-good one to be pruned.
 
 ### Dependencies
-- `stop_calibreweb.sh` and `start_calibreweb.sh` must be in `$SCRIPTS_DIR`
-- `calibre_check_integrity.sh` must be in `$SCRIPTS_DIR`
+- `stop_calibreweb.sh` and `start_calibreweb.sh` must be in `$SCRIPT_DIR`
+- `calibre_check_integrity.sh` must be in `$SCRIPT_DIR`
 - `rclone` must be installed: `brew install rclone`
 - `/usr/bin/rsync` must have Full Disk Access in System Settings
 - `/bin/bash` must have Full Disk Access in System Settings
@@ -94,10 +124,10 @@ Scans a Calibre library for corrupt PDF and EPUB files.
 
 ### Usage
 ```bash
-./calibre_check_integrity.sh /path/to/library [/path/to/log/dir]
+./calibre_check_integrity.sh [/path/to/library] [/path/to/log/dir]
 ```
 
-If log directory is omitted, logs are written to the current directory.
+Both arguments are optional and fall back to `LIBRARY` and `LOG_DIR` in `config.sh`. Arguments still win when given, which is what the two callers depend on: `calibre_nightly_backup.sh` passes the live library and `calibre_restore_preview.sh` passes a preview folder.
 
 ### What it checks
 
@@ -105,14 +135,15 @@ If log directory is omitted, logs are written to the current directory.
 - **EPUBs**: checks zip integrity and required EPUB structure (`mimetype` file, `.opf` file)
 
 ### Output
-- Prints OK/CORRUPT status for each file to stdout
-- Writes a `calibre_integrity_YYYYMMDD_HHMMSS.log` only if corrupt files are found
-- If all files pass, no log file is created
+- Writes a `calibre_integrity_YYYYMMDD_HHMMSS.log` on **every** run, clean or not, with per-file OK/CORRUPT detail
+- Prints one summary line to the terminal — files checked, files corrupt, and the log path
 - Always exits 0 — corrupt files are reported but never abort a calling script
+
+The log used to be deleted when nothing was wrong. That made a library that passed and a check that never ran leave exactly the same trace — nothing at all — so there was no way to tell "clean" from "didn't happen". The log is now always kept and rotation prunes it, and the summary line goes back out to the terminal through a file descriptor saved before the log redirect, so the outcome is visible without opening anything.
 
 ### Notes
 - Python checker code is written to a temp file rather than a heredoc to avoid `set -e` being triggered by Python's non-zero exit on corrupt files
-- Last 30 integrity logs kept, older ones pruned automatically
+- Last `$KEEP_LOGS` integrity logs kept, older ones pruned automatically
 
 ### Useful commands
 
@@ -133,11 +164,11 @@ Compares two Calibre library folders and copies book folders present in the sour
 
 ### Usage
 ```bash
-./calibre_sync.sh /path/to/source /path/to/destination [/path/to/staging]
+./calibre_sync.sh /path/to/source [/path/to/destination] [/path/to/staging]
 ```
 
-- **SOURCE**: old or damaged library (read-only, never modified)
-- **DEST**: restored library (used for comparison)
+- **SOURCE**: old or damaged library (read-only, never modified). Required — there is no sensible default for "whichever broken library you are recovering from".
+- **DEST**: restored library (used for comparison). Defaults to `LIBRARY` in `config.sh`.
 - **STAGING**: optional folder to copy missing books into (recommended)
 
 If staging is omitted, missing books are copied directly into the destination preserving Calibre's Author/Title folder structure.
@@ -153,6 +184,8 @@ If staging is omitted, missing books are copied directly into the destination pr
 - After copying, use Calibre's `Add books from folders` on the staging folder to import
 - Uses `find` with proper `-o` grouping rather than `ls` with multiple globs (safe under `set -e`)
 - Bash 3.2 compatible — uses sorted temp file instead of associative array
+- Logs to `$LOG_DIR/calibre_sync_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept. The log used to be written into whatever directory you happened to be standing in, which scattered logs around and left them accumulating forever with nothing to rotate them out.
+- The log is only created once you confirm the copy. Answering `no` at the dry-run prompt leaves no log behind, which is accurate — nothing was done.
 
 ---
 
@@ -162,8 +195,10 @@ For each OPF file in a staging folder, finds the matching book in the Calibre li
 
 ### Usage
 ```bash
-./calibre_update_metadata.sh /path/to/opf/folder /path/to/library
+./calibre_update_metadata.sh /path/to/opf/folder [/path/to/library]
 ```
+
+STAGING is required — it is the folder of recovered books you have just built. LIBRARY defaults to `LIBRARY` in `config.sh`.
 
 ### What it does
 1. Finds all `.opf` files in the staging folder
@@ -176,6 +211,8 @@ For each OPF file in a staging folder, finds the matching book in the Calibre li
 - Two-pass search: exact match first, then loose match
 - Make sure Calibre app and `calibre-parallel` processes are NOT running before using this — same threading issue applies to `calibredb` as to the GUI
 - Logs updated, not-found, and failed books separately
+- `calibredb` is located via `CALIBREDB` in `config.sh` rather than a hardcoded `/Applications` path, and the script checks it is executable before doing anything
+- Logs to `$LOG_DIR/calibre_update_metadata_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept
 
 ---
 
@@ -260,14 +297,15 @@ Do NOT manually delete `.DS_Store` from the live library — use Calibre's built
 
 For the preview folder, delete manually:
 ```bash
-find `cat ~/Code/FourM/Logs/.calibre_restore_preview_path` -name ".DS_Store" -delete
+source ./config.sh
+find "$(cat "$LOG_DIR/.calibre_restore_preview_path")" -name ".DS_Store" -delete
 ```
 
 **Step 3 — Compare preview to live library with full log:**
 ```bash
-PREVIEW=`cat ~/Code/FourM/Logs/.calibre_restore_preview_path`
-LIBRARY="$HOME/Calibre Library"
-LOG="$HOME/Code/FourM/Logs/restore_diff_$(date +%Y%m%d).log"
+source ./config.sh
+PREVIEW="$(cat "$LOG_DIR/.calibre_restore_preview_path")"
+LOG="$LOG_DIR/restore_diff_$(date +%Y%m%d).log"
 
 diff -rq "$LIBRARY" "$PREVIEW" > "$LOG" 2>&1
 echo "Exit code: $?"
@@ -282,8 +320,9 @@ For a same-day snapshot you should see no real differences. Any `Only in live li
 **Step 4 — Compare integrity checks:**
 Since the integrity check ran the night before should be identical to the integrity check run on the preview, an additional test which compares the integrity checks is useful. Note we need to remove the path and only look at the book name, otherwise there will always be a difference.
 ```bash
-grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_RESTORE_TIMESTAMP.log | sort > /tmp/live_files.txt
-grep -o '[^/]*\.epub\|[^/]*\.pdf' ~/Code/FourM/Logs/calibre_integrity_LAST_BACKUP_TIMESTAMP.log | sort > /tmp/backup_files.txt
+source ./config.sh
+grep -o '[^/]*\.epub\|[^/]*\.pdf' "$LOG_DIR/calibre_integrity_RESTORE_TIMESTAMP.log" | sort > /tmp/live_files.txt
+grep -o '[^/]*\.epub\|[^/]*\.pdf' "$LOG_DIR/calibre_integrity_LAST_BACKUP_TIMESTAMP.log" | sort > /tmp/backup_files.txt
 diff /tmp/live_files.txt /tmp/backup_files.txt
 ```
 
@@ -318,25 +357,29 @@ chmod +x setup_calibreweb.sh
 ### What it does
 1. Locates Python 3.12 (checks multiple common paths)
 2. Kills any running Calibre/CalibreWeb processes
-3. Creates venv at `~/Code/venv/calibre-web-env/` if it doesn't exist
+3. Creates the venv at `$VENV_DIR` if it doesn't exist
 4. Installs CalibreWeb via pip
 5. Installs optional features (comics, goodreads, metadata, gdrive) from `optional-requirements.txt`
 6. **Reinstall mode** (existing `app.db`): backs up `app.db` with timestamp, prompts for each setting individually, validates SSL cert/key/library paths exist after configuration
 7. **Fresh install mode** (no `app.db`): starts `cps` briefly to generate `app.db`, configures port/library/SSL via sqlite3
-8. Generates `start_calibreweb.sh` and `stop_calibreweb.sh` in Scripts directory
+8. Verifies `start_calibreweb.sh` and `stop_calibreweb.sh` are present next to it and makes them executable
+
+### Why it no longer generates the start/stop scripts
+
+It used to write `start_calibreweb.sh` and `stop_calibreweb.sh` out from heredocs. That meant two copies of each script existed — the one in the repo and the one setup would overwrite it with — and the heredoc copy was the one that actually ran. Every fix to the repo copy was silently discarded the next time anyone ran setup. The repo copies are now the only copies; setup checks they exist and `chmod +x`es them.
 
 ### Path validation
 After configuration the script validates that the SSL certificate, SSL key, and library path all exist on disk, warning immediately if any are missing. This catches the common mistake of answering "no" to updating a path that has since moved.
 
 ### Notes
 - Uses `export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"` for Intel/Apple Silicon portability
-- The venv parent directory (`~/Code/venv/`) is a container for multiple environments — the CalibreWeb venv is specifically at `~/Code/venv/calibre-web-env/`
+- `VENV_DIR` points at the CalibreWeb environment itself, not at a directory of environments. Give it its own folder — something like `.../venv/calibre-web-env` — rather than a shared `venv` parent, or a reinstall will churn whatever else lives alongside it.
 
 ---
 
 ## `start_calibreweb.sh`
 
-Starts CalibreWeb inside a named tmux session.
+Starts CalibreWeb inside a named tmux session with two windows.
 
 ### Usage
 ```bash
@@ -345,10 +388,38 @@ Starts CalibreWeb inside a named tmux session.
 tmux attach -t calibreweb
 ```
 
+### Session layout
+
+| Window | Contents |
+|--------|----------|
+| `cps` | CalibreWeb itself, stdout and stderr teed to a timestamped log |
+| `shell` | An interactive shell with the venv already activated, for debugging |
+
+`cps` is selected on attach. The old single-window session ran `cps` in the foreground of an interactive shell, so the first thing you had to do on every attach was background it before you could type anything. Now `cps` has a window of its own and the second window is already sitting at a prompt with the venv active.
+
+### How `cps` is launched
+
+The command is handed straight to `tmux new-session` rather than typed in with `send-keys`:
+
+```bash
+tmux new-session -d -s "$SESSION" -n cps -c "$HOME" "/bin/bash -c '$CPS_CMD'"
+```
+
+`send-keys` races the shell's own startup. If an rc file prints a prompt first — oh-my-zsh's "Would you like to update? [Y/n]" being the one that actually bit — the prompt swallows the leading characters and `cps` never launches, silently. Passing the command to `new-session` means tmux runs it via `/bin/sh -c` with no interactive shell and no rc files, so there is nothing to race. (See the oh-my-zsh note in `Dotfiles.Mac`, which fixes the same bug from the other end.) `$CPS_CMD` must contain no single quotes, since it is embedded in a single-quoted string.
+
+After `cps` exits, the window `exec`s into a login shell rather than closing, so a traceback stays on screen instead of vanishing with the pane.
+
+### The `cps` log
+
+`cps`'s stdout and stderr are teed to `$LOG_DIR/calibre_web_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept — the same dated-and-pruned convention as every other log in the repo.
+
+**This is not CalibreWeb's application log.** CalibreWeb writes that itself, to `config_logfile` (`~/.calibre-web/calibre-web.log` by default). It never passes through stdout and is not touched here.
+
 ### Notes
-- Checks for actual `cps` process, not just tmux session existence
+- Checks for an actual `cps` process, not just tmux session existence
 - If a stale tmux session exists without `cps` running, kills the session before starting fresh
-- Uses full path logic for tmux via `PATH` export covering both Intel (`/usr/local/bin`) and Apple Silicon (`/opt/homebrew/bin`)
+- Exports `PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"` for Intel/Apple Silicon portability
+- Deliberately does **not** use `set -euo pipefail` — a failed `pgrep` or `tmux has-session` is a normal, expected outcome here, not an error worth aborting on
 
 ---
 
@@ -385,11 +456,15 @@ chmod +x install_calibre_backup_launchd.sh
 ### Notes
 - Uses `~/Library/LaunchAgents` (user agent) — requires login session, not system-level
 - Appropriate for an always-on Mac Mini where the user is always logged in
-- Unloads existing job before reinstalling to ensure clean state
+- Boots out any existing job before reinstalling to ensure clean state
+- Uses `launchctl bootout`/`bootstrap` rather than the legacy `unload`/`load`. Recent macOS versions are unreliable about the legacy pair, often failing with a generic I/O error when nothing is actually wrong.
+- Substitutes the real script path into the plist before installing it (see below)
+
+This is a one-time registration step. Once bootstrapped, launchd rescans `LaunchAgents` on every login and reloads the job itself — you only need to run this again when reinstalling on a new machine or changing the plist.
 
 ### To uninstall
 ```bash
-launchctl unload ~/Library/LaunchAgents/info.fourm.calibre-backup.plist
+launchctl bootout gui/$(id -u)/info.fourm.calibre-backup
 rm ~/Library/LaunchAgents/info.fourm.calibre-backup.plist
 ```
 
@@ -403,6 +478,20 @@ launchd property list that schedules `calibre_nightly_backup.sh` to run at 2:00a
 - `StartCalendarInterval`: Hour 2, Minute 0
 - `RunAtLoad`: false — only runs at scheduled time, not on login
 - stdout/stderr redirected to `/dev/null` — the backup script writes its own timestamped logs
+
+### The `__BACKUP_SCRIPT__` placeholder
+
+The committed plist does not contain a real path. It ships with:
+
+```xml
+<string>__BACKUP_SCRIPT__</string>
+```
+
+which `install_calibre_backup_launchd.sh` replaces with `$SCRIPT_DIR/calibre_nightly_backup.sh` as it writes the file into `~/Library/LaunchAgents`. A plist that hardcoded `~/Code/FourM/Calibre` would install cleanly on a machine that cloned the repo somewhere else and then quietly run nothing every night at 2am.
+
+Substitution uses bash's own `${var//pattern/replacement}` rather than `sed`, so a path containing `/` or `&` needs no escaping.
+
+Because the placeholder is only meaningful once substituted, **do not copy the committed plist into `LaunchAgents` by hand** — run the installer.
 
 ### Installation path
 ```
@@ -435,22 +524,27 @@ rsync ...
 ### CalibreWeb SSL error mid-session
 CalibreWeb periodically re-reads its SSL certificate. If the certificate or key path in `app.db` no longer exists on disk, it will fail hours after startup. Verify with:
 ```bash
-sqlite3 ~/.calibre-web/app.db "SELECT config_certfile, config_keyfile FROM settings;"
+source ./config.sh
+sqlite3 "$CALIBRE_WEB_CONFIG/app.db" "SELECT config_certfile, config_keyfile FROM settings;"
 ```
-Fix via the CalibreWeb admin UI at `http://localhost:YOUR_PORT` or by re-running `setup_calibreweb.sh`.
+Compare what comes back against `CERT_FILE` and `KEY_FILE` in `config.sh` — a mismatch between the two is the usual cause. Fix via the CalibreWeb admin UI at `$CALIBRE_HOST` or by re-running `setup_calibreweb.sh`.
 
 ### `tmux: command not found` from launchd
-launchd has a minimal PATH that doesn't include Homebrew. The start/stop scripts export the full path:
+launchd has a minimal PATH that doesn't include Homebrew. The start/stop scripts export the full path themselves:
 ```bash
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 ```
-If you see this error, re-run `setup_calibreweb.sh` to regenerate the start/stop scripts with the correct PATH.
+If you see this error, check that line is still at the top of `start_calibreweb.sh` and `stop_calibreweb.sh`. (Re-running `setup_calibreweb.sh` will *not* fix it — setup no longer generates these scripts, it only chmods the repo copies.)
+
+### CalibreWeb doesn't start in tmux, session is there but empty
+Almost always something in an rc file prompting for input and eating the launch command's first keystrokes. oh-my-zsh's update prompt is the known culprit; `zstyle ':omz:update' mode auto` in `Dotfiles.Mac` disables it. `start_calibreweb.sh` also passes `cps` directly to `tmux new-session` instead of using `send-keys`, so no interactive shell is involved on that path any more — but a `send-keys` in your own tooling will still hit this.
 
 ### iCloud backup interrupted (`Interrupted system call`)
-iCloud Drive can briefly pause file access while syncing to cloud, causing rclone to fail mid-operation. If the nightly log shows this error, rerun the iCloud step manually:
+iCloud Drive can briefly pause file access while syncing to cloud, causing rclone to fail mid-operation. The nightly backup records this as a failure and carries on with the remaining steps, so you will find it named in the `_FAILED.log`. Rerun the iCloud step manually:
 ```bash
-rclone sync "$HOME/Calibre Library/" "$HOME/Documents/Backups/Calibre/current/" \
-    --backup-dir "$HOME/Documents/Backups/Calibre/versions/daily.$(date +%Y%m%d_%H%M%S)" \
+source ./config.sh
+rclone sync "$LIBRARY/" "$ICLOUD_BACKUP/current/" \
+    --backup-dir "$ICLOUD_BACKUP/versions/daily.$(date +%Y%m%d_%H%M%S)" \
     --exclude='.DS_Store' \
     --exclude='.stfolder/**' \
     -v

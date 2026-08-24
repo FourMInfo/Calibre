@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/YOUR_USERNAME/Code/FourM/Calibre/calibre_nightly_backup.sh</string>
+        <string>__BACKUP_SCRIPT__</string>
     </array>
 
     <key>StartCalendarInterval</key>

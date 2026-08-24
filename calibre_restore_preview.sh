@@ -29,20 +29,33 @@
 set -euo pipefail
 
 # ── Load local config ─────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ ! -f "$SCRIPT_DIR/config.sh" ]]; then
-    echo "ERROR: config.sh not found at $SCRIPT_DIR/config.sh"
+# SCRIPT_DIR has to be derived here because it is what locates config.sh.
+# config.sh may override it; if it doesn't, this script's own directory wins.
+_self_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$_self_dir/config.sh" ]]; then
+    echo "ERROR: config.sh not found at $_self_dir/config.sh"
     echo "  Copy config.sh.example to config.sh and fill in your values."
     exit 1
 fi
-source "$SCRIPT_DIR/config.sh"
+source "$_self_dir/config.sh"
+SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 
-# ── Derived paths (not in config) ─────────────────────────────────────────────
-LIBRARY="$HOME/Calibre Library"
+# ── Validate config ───────────────────────────────────────────────────────────
+missing_keys=""
+for key in LIBRARY LOG_DIR VENV_DIR HOST_BACKUP ICLOUD_BACKUP; do
+    if [[ -z "${!key:-}" ]]; then
+        missing_keys="$missing_keys $key"
+    fi
+done
+if [[ -n "$missing_keys" ]]; then
+    echo "ERROR: config.sh is missing required key(s):$missing_keys"
+    echo "  Compare your config.sh against config.sh.example and add them."
+    exit 1
+fi
+
+# Preview area sits alongside the backup root on the same drive, so the
+# preview copy costs no extra round trip over the network or bus.
 HOST_PREVIEW="$(dirname "$HOST_BACKUP")/CalibreRestore"
-SCRIPTS_DIR="$HOME/Code/FourM/Calibre"
-LOG_DIR="$HOME/Code/FourM/Logs"
-VENV_DIR="$HOME/Code/venv/calibre-web-env"
 
 # iCloud paths — must match calibre_nightly_backup.sh
 ICLOUD_CURRENT="$ICLOUD_BACKUP/current"
@@ -167,8 +180,19 @@ echo ""
 if [[ "$selected_type" == "rsync" ]]; then
     rsync -aH --delete "$selected/" "$PREVIEW_PATH/"
 else
-    # rclone for iCloud current and delta versions
-    rclone sync "$selected/" "$PREVIEW_PATH/" -v 2>&1 | grep -v "^$" || true
+    # rclone for iCloud current and delta versions.
+    # `grep -v "^$"` exits 1 when it prints nothing, which pipefail would treat
+    # as a failed restore, so read rclone's own status out of PIPESTATUS rather
+    # than swallowing the whole pipeline with `|| true`.
+    set +e
+    rclone sync "$selected/" "$PREVIEW_PATH/" -v 2>&1 | grep -v "^$"
+    rclone_status=${PIPESTATUS[0]}
+    set -e
+    if [[ "$rclone_status" -ne 0 ]]; then
+        echo "  ✗ rclone restore failed (exit $rclone_status)"
+        echo "    The preview at $PREVIEW_PATH is incomplete — do NOT finalize it."
+        exit 1
+    fi
 fi
 
 echo "  ✓ Snapshot restored to preview folder"
@@ -176,8 +200,8 @@ echo ""
 
 # ── Integrity check on preview ────────────────────────────────────────────────
 echo "Running integrity check on preview..."
-if [[ -f "$SCRIPTS_DIR/calibre_check_integrity.sh" ]]; then
-    bash "$SCRIPTS_DIR/calibre_check_integrity.sh" "$PREVIEW_PATH" "$LOG_DIR"
+if [[ -f "$SCRIPT_DIR/calibre_check_integrity.sh" ]]; then
+    bash "$SCRIPT_DIR/calibre_check_integrity.sh" "$PREVIEW_PATH" "$LOG_DIR"
     echo "  ✓ Integrity check complete"
 else
     echo "  ⚠ calibre_check_integrity.sh not found — skipping"
@@ -198,10 +222,10 @@ echo "  1. Open Calibre app"
 echo "  2. Switch library to the preview folder above"
 echo "  3. Review that everything looks correct"
 echo "  4. When satisfied, run:"
-echo "     $SCRIPTS_DIR/calibre_restore_finalize.sh"
+echo "     $SCRIPT_DIR/calibre_restore_finalize.sh"
 echo ""
 echo "  NOTE: CalibreWeb is currently stopped."
 echo "  If you decide NOT to proceed with restore,"
 echo "  restart it manually with:"
-echo "     $SCRIPTS_DIR/start_calibreweb.sh"
+echo "     $SCRIPT_DIR/start_calibreweb.sh"
 echo "=========================================="

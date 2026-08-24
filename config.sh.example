@@ -6,9 +6,32 @@
 # All scripts source this file automatically via:
 #   source "$(dirname "$0")/config.sh"
 #
-# Variables using $HOME are resolved at runtime so no need to hardcode
-# your username. Only machine-specific values that can't be derived
-# from $HOME belong here.
+# Every path a script needs lives here, including the ones under $HOME.
+# Keeping them in one place means no script hardcodes a location, so
+# there is a single source of truth and a single place to change it.
+# Variables using $HOME are resolved at runtime, so you do not need to
+# hardcode your username.
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+# Calibre library
+LIBRARY="$HOME/Calibre Library"
+
+# Where all logs are written (shared by every script)
+LOG_DIR="$HOME/Code/FourM/Logs"
+
+# Python venv holding the CalibreWeb (cps) install
+VENV_DIR="$HOME/Code/venv/calibre-web-env"
+
+# CalibreWeb's own config directory (holds app.db and calibre-web.log)
+CALIBRE_WEB_CONFIG="$HOME/.calibre-web"
+
+# calibredb binary from the Calibre desktop app
+CALIBREDB="/Applications/calibre.app/Contents/MacOS/calibredb"
+
+# Where these scripts live. Leave commented out and each script uses its
+# own directory, which is correct in almost all cases. Uncomment only if
+# you need a script to call its siblings at a different location.
+# SCRIPT_DIR="$HOME/Code/FourM/Calibre"
 
 # ── Backup destinations ───────────────────────────────────────────────────────
 # External drive backup root — drive name is machine specific
@@ -29,8 +52,14 @@ PORT=YOUR_PORT
 CERT_FILE="$HOME/Code/FourM/Software/Calibre-Keys/your_cert.pem"
 KEY_FILE="$HOME/Code/FourM/Software/Calibre-Keys/your_key.key"
 
+# tmux session name CalibreWeb runs in
+TMUX_SESSION="calibreweb"
+
 # ── Rotation policy ───────────────────────────────────────────────────────────
 KEEP_DAILY=7
 KEEP_WEEKLY=4
 KEEP_MONTHLY=2
 KEEP_YEARLY=1
+
+# How many log files each script keeps before pruning the oldest
+KEEP_LOGS=30

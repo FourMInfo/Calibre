@@ -43,10 +43,12 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "✓ tmux session '$SESSION' closed"
 fi
 
-# Kill Calibre app and worker processes. pgrep -x matches the process name
-# exactly; `pgrep -f calibre` was always true here, because this script's own
-# command line contains "calibreweb".
-if pgrep -x calibre > /dev/null || pgrep -x calibre-parallel > /dev/null; then
+# Kill Calibre app and worker processes.
+# The bare "calibre" pattern is deliberate — it has to catch calibre-parallel
+# and the other partially-named helpers, not just an exact `calibre`.
+# This does not match the script itself: macOS pgrep excludes the process that
+# invoked it, so `stop_calibreweb.sh` never sees its own command line here.
+if pgrep -f "calibre" > /dev/null; then
     echo "Stopping Calibre..."
     killall calibre 2>/dev/null || true
     killall calibre-parallel 2>/dev/null || true

@@ -16,15 +16,20 @@ source "$_self_dir/config.sh"
 
 SESSION="$TMUX_SESSION"
 
+# Match the venv's cps binary rather than a bare "cps". pgrep/pkill -f test the
+# whole command line, so a bare pattern matches anything containing those three
+# letters. With pkill -KILL below, a false match kills an innocent process.
+CPS_PATTERN="$VENV_DIR/bin/cps"
+
 # SIGTERM the cps process
-if pgrep -f "cps" > /dev/null; then
+if pgrep -f "$CPS_PATTERN" > /dev/null; then
     echo "Stopping CalibreWeb (SIGTERM)..."
-    pkill -TERM -f "cps" || true
+    pkill -TERM -f "$CPS_PATTERN" || true
     sleep 5
     # Force kill if still running
-    if pgrep -f "cps" > /dev/null; then
+    if pgrep -f "$CPS_PATTERN" > /dev/null; then
         echo "Force killing CalibreWeb..."
-        pkill -KILL -f "cps" || true
+        pkill -KILL -f "$CPS_PATTERN" || true
     fi
     echo "✓ CalibreWeb stopped"
 else
@@ -38,8 +43,10 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "✓ tmux session '$SESSION' closed"
 fi
 
-# Kill Calibre app and worker processes
-if pgrep -f "calibre" > /dev/null; then
+# Kill Calibre app and worker processes. pgrep -x matches the process name
+# exactly; `pgrep -f calibre` was always true here, because this script's own
+# command line contains "calibreweb".
+if pgrep -x calibre > /dev/null || pgrep -x calibre-parallel > /dev/null; then
     echo "Stopping Calibre..."
     killall calibre 2>/dev/null || true
     killall calibre-parallel 2>/dev/null || true

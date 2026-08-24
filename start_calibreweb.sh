@@ -21,8 +21,11 @@ SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 SESSION="$TMUX_SESSION"
 LOG_PREFIX="calibre_web"
 
-# Check if cps process is actually running (not just tmux session)
-if pgrep -f "cps" > /dev/null; then
+# Check if cps process is actually running (not just tmux session).
+# Match the venv's cps binary, not a bare "cps" — pgrep -f tests the whole
+# command line, so a bare pattern matches anything containing those three
+# letters and makes this script refuse to start for no reason.
+if pgrep -f "$VENV_DIR/bin/cps" > /dev/null; then
     echo "CalibreWeb is already running"
     echo "Attach with: tmux attach -t $SESSION"
     exit 0

@@ -44,13 +44,36 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 # Kill Calibre app and worker processes.
-# The bare "calibre" pattern is deliberate — it has to catch calibre-parallel
-# and the other partially-named helpers, not just an exact `calibre`.
+#
+# Anchor on the app bundle rather than matching by name. killall is exact-name,
+# so the old `killall calibre` + `killall calibre-parallel` pair only covered the
+# two workers we happened to know about; anything else Calibre spawns
+# (ebook-convert, calibre-server, ...) survived. Every worker does share the
+# bundle root at the front of its command line, however deeply nested:
+#   /Applications/calibre.app/Contents/ebook-viewer.app/.../MacOS/calibre-parallel
+# A bare `-f calibre` would go too far the other way and match anything with the
+# word in its argv — a shell in ~/Calibre Library, a tail on calibre_web_*.log,
+# the venv path (calibre-web-env) — a false "Stopping Calibre..." at best and,
+# with a kill attached, a real hazard.
+#
 # This does not match the script itself: macOS pgrep excludes the process that
 # invoked it, so `stop_calibreweb.sh` never sees its own command line here.
-if pgrep -f "calibre" > /dev/null; then
-    echo "Stopping Calibre..."
-    killall calibre 2>/dev/null || true
-    killall calibre-parallel 2>/dev/null || true
+CALIBRE_APP="${CALIBREDB%%/Contents/*}"   # -> /Applications/calibre.app
+
+if [[ -z "$CALIBREDB" || "$CALIBRE_APP" == "$CALIBREDB" ]]; then
+    # Either unset, or not a path inside the bundle, so the strip did nothing.
+    # Bail out — an empty pattern makes `pkill -f ""` match every process.
+    echo "WARNING: CALIBREDB is not a path inside calibre.app — skipping Calibre"
+    echo "  process cleanup. Set CALIBREDB in config.sh."
+elif pgrep -f "$CALIBRE_APP" > /dev/null; then
+    echo "Stopping Calibre (SIGTERM)..."
+    pkill -TERM -f "$CALIBRE_APP" || true
+    sleep 3
+    if pgrep -f "$CALIBRE_APP" > /dev/null; then
+        echo "Force killing Calibre..."
+        pkill -KILL -f "$CALIBRE_APP" || true
+    fi
     echo "✓ Calibre stopped"
+else
+    echo "Calibre is not running"
 fi

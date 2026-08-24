@@ -18,3 +18,11 @@ calibre_nightly_backup_tmp.sh
 
 # Logs (stored in ~/Code/FourM/Logs, not in repo)
 *.log
+
+# Full-text search output (REVIEW_DIR). The default in config.sh.example is
+# inside the repo, and .snippets.txt files contain passages copied out of your
+# books — not something to push to a public repo.
+reviews/
+*.ids
+*.snippets.txt
+*.vl.txt

@@ -500,6 +500,150 @@ Because the placeholder is only meaningful once substituted, **do not copy the c
 
 ---
 
+## `calibre_fts_search.sh`
+
+Runs a full-text search from the command line and writes the result out in three shapes so it survives quitting Calibre.
+
+### Usage
+```bash
+./calibre_fts_search.sh 'quicksilver protocol'
+./calibre_fts_search.sh --exact --name marginalia 'marginalia'
+./calibre_fts_search.sh --restrict 'search:tag:history' 'annotation'
+./calibre_fts_search.sh --reindex 'quicksilver'
+```
+
+### What it does
+1. Checks `fts_index status` and stops with instructions if indexing is off
+2. Warns if the index is incomplete but still searchable
+3. Optionally reindexes and waits for it to finish (`--reindex`)
+4. Searches, and refuses to guess if the search was refused (see below)
+5. Writes `.ids`, `.snippets.txt` and `.vl.txt` into `REVIEW_DIR`
+
+### The three output files
+
+| File | Contents | What it is for |
+|------|----------|----------------|
+| `<name>.ids` | One book id per line | Input to `calibre_ids_to_search.sh` and `calibre_tag_ids.sh` |
+| `<name>.snippets.txt` | The matched passages | Reading through the result away from Calibre |
+| `<name>.vl.txt` | `id:4 or id:1 or ...` | Paste into the search bar, or save as a Virtual Library |
+
+The point of writing anything down at all: a full-text search result in the Calibre GUI lives in the `marked` flag, which is session state. `calibredb` cannot see it and it is gone the moment you quit. A 300-book result from a twenty-minute search evaporates. See [FULL_TEXT_SEARCH.md](FULL_TEXT_SEARCH.md).
+
+### Why stderr is captured, not discarded
+
+When the index is below `--indexing-threshold` (90% by default) `fts_search` prints **nothing on stdout**, writes `N files out of M are not yet indexed, searching is disabled` to **stderr**, and exits 1. That is the same empty-stdout-and-nonzero-exit signature as a genuine no-match, so `2>/dev/null` converts "the search was refused" into "nothing found" — a wrong answer with no error attached.
+
+The script captures stderr to a temp file, greps it for `searching is disabled`, and stops with an error quoting Calibre's own message. It was written the wrong way first and reported "No matches." for a search that never ran; that is how the behaviour was found.
+
+Above the threshold there is no refusal and no warning from Calibre at all — at 95% indexed it searches happily and simply does not look at the other 5%. The script prints its own WARNING in that case, since Calibre will not.
+
+### `--reindex` and the indexing worker
+
+Calibre indexes in a background worker started *inside* the `calibredb` process and torn down when it exits, so a short-lived CLI call only indexes a few more books before dying. Repeated runs creep forward a book or two at a time — a fresh 12-book library observed going 0 → 1 → 3 → 6 → 7 → 9 across successive invocations.
+
+`--reindex` is the way out. It holds the process open until the index is complete. The alternative is to leave the Calibre desktop app running, since its worker is long-lived.
+
+The invocation looks odd for two reasons:
+```bash
+yes reindex | calibredb ... fts_index reindex --wait-for-completion 2>&1 | ... || true
+```
+The confirmation prompt wants the literal word `reindex` typed at it — a plain `yes |` answers "y", which the prompt treats as "anything else" and aborts, and with no stdin at all it dies on `EOFError`. And `yes` is still writing when `calibredb` exits, so it dies of SIGPIPE and fails the pipeline under `pipefail` even on success, hence `|| true`.
+
+Note that `reindex` **rebuilds from scratch**. It is a sledgehammer for merely finishing an incomplete index, but it is the only CLI operation that offers `--wait-for-completion`.
+
+### Notes
+- `--exact` maps to `--do-not-match-on-related-words`. Stemming is on by default, so a search for "appear" also matches "appears" and "appearing"
+- `--restrict` takes `ids:1,2,3` or `search:tag:foo`. The `ids:` form works **only** here — it silently matches nothing in a normal search expression
+- Snippets are a second pass, because `--include-snippets` "makes searching much slower" by Calibre's own account and is not needed to harvest ids
+- Snippet markers are set to `>>>`/`<<<`. Calibre's defaults are raw ANSI colour escapes: fine on a terminal, unreadable in a file
+- Over 491 matches, no `id:` expression is written — Calibre's parser cannot hold one. The `.vl.txt` file instead contains the `calibre_tag_ids.sh` command to run
+- Output goes to `REVIEW_DIR`, falling back to `$LOG_DIR/reviews` if an older `config.sh` does not define it
+
+---
+
+## `calibre_ids_to_search.sh`
+
+Turns a list of book ids into a search expression you can paste into the search bar or save as a Virtual Library.
+
+### Usage
+```bash
+./calibre_ids_to_search.sh ~/reviews/marginalia.ids
+./calibre_ids_to_search.sh --copy ~/reviews/marginalia.ids
+./calibre_ids_to_search.sh --field author_sort --out expr.txt ids.txt
+calibredb list -s 'tag:history' --for-machine | ./calibre_ids_to_search.sh -
+```
+
+```
+1
+3   ────────►   id:1 or id:3 or id:4
+4
+```
+
+### Why an "or" chain and not a list
+
+Calibre's search grammar does not accept a comma-separated list of ids:
+
+| Expression | Result |
+|------------|--------|
+| `id:1 or id:3` | Works |
+| `id:1,3` | `ParseException` |
+| `ids:1,3` | **Silently matches nothing** |
+
+The `ids:` failure is the dangerous one — no error, just an empty result. An explicit `or` chain between single ids is the only form that works in the search bar.
+
+### Input shapes
+
+Detected automatically, in this order:
+
+1. **JSON** from `calibredb`. Note that `list --for-machine` emits `"id"` while `fts_search --output-format=json` emits `"book_id"` — the two Calibre JSON outputs disagree, and both are accepted. The key is matched exactly so `series_id` or `uuid_id` can never be mistaken for the book id
+2. **Catalog CSV**. The `id` column is located by name rather than assumed to be first, with a warning if it is not column 1 (a quoted comma in an earlier column would shift `cut`)
+3. **Plain list** — newline, comma or space separated, with an optional `id:` prefix tolerated so an expression can be fed back in and re-normalised
+
+The CSV test is deliberately "header row with commas and letters in it", not "has an id column". A catalog exported *without* id would otherwise fall through to the plain branch and quietly harvest any digits it found in the titles — a wrong answer rather than an error.
+
+### Notes
+- Deliberately standalone: it needs no library, no log and no path, so it does not source `config.sh` and can be dropped into a pipe on a machine that has none
+- Strips the UTF-8 BOM Calibre writes at the head of its catalog CSV, without which the first column reads as `<BOM>id` and every name test against it fails
+- Refuses over 491 ids and points at `calibre_tag_ids.sh` instead; `--force` overrides
+- Joins with a bash loop, not `sed`. The obvious one-liner `tr '\n' '\a' | sed 's/\a/ or /g'` silently does nothing on BSD sed, which reads `\a` in a pattern as a plain letter "a" — and with `--field author_sort` replaces every "a" in the field name as well
+- `--copy` needs `pbcopy`; warns rather than failing if it is absent
+
+---
+
+## `calibre_tag_ids.sh`
+
+Adds or removes one tag across a list of book ids without disturbing the other tags on those books.
+
+### Usage
+```bash
+./calibre_tag_ids.sh --dry-run ~/reviews/marginalia.ids review-2026-08-24
+./calibre_tag_ids.sh ~/reviews/marginalia.ids review-2026-08-24
+./calibre_tag_ids.sh --remove ~/reviews/marginalia.ids review-2026-08-24
+```
+
+### Why this exists
+
+`calibredb set_metadata --field 'tags:foo'` **replaces the whole tag list**. Run that against a book tagged `history, reference` and you are left with a book tagged `foo` and no way back short of a restore.
+
+So every book is read first, the new list composed from what is already there, and only then written back — and if the read fails for any reason, that book is skipped rather than written.
+
+The usual reason to want this is a search result too large for an `id:` expression. A tag has no 491-term ceiling, so tagging the result and building the Virtual Library on `tags:="the-tag"` is the route that always works at any size. The script prints that expression when it finishes.
+
+### The read-modify-write guard
+
+`show_metadata` omits the `Tags` line entirely when a book has no tags, so an absent line is indistinguishable from a truncated read on its own — and "no tags" followed by a write is exactly how a tag list gets wiped. Every book has a `Title`, so the presence of `^Title  *:` is used as proof the read actually returned metadata before "no tags" is believed. Anything less and the book is counted as failed and left alone.
+
+### Notes
+- `--dry-run` prints `id N: [old] -> [new]` for every book and writes nothing
+- Prompts for confirmation otherwise; `--yes` skips it for use inside other scripts
+- Tag matching is case-insensitive, but on add the spelling already in the library wins rather than the one on the command line
+- Rejects a tag containing a comma — Calibre uses it as the separator, so it would read back as two tags and quietly corrupt the list on the next run
+- Books already carrying the tag (or, with `--remove`, not carrying it) are counted as unchanged, not rewritten
+- Exits 1 if any book failed, so a caller can tell
+- Removing the tag in the GUI instead: select the books, `Edit metadata` in bulk, and use the **&Remove tags:** field
+
+---
+
 ## Common Issues
 
 ### `apsw.ThreadingViolationError` during restore or metadata update
@@ -550,3 +694,42 @@ rclone sync "$LIBRARY/" "$ICLOUD_BACKUP/current/" \
     -v
 ```
 This is safe to rerun — rclone will resume from where it left off and only transfer what is missing.
+
+### Full-text search returns nothing when you know the passage is there
+
+Three separate causes, in order of likelihood:
+
+1. **The index is incomplete.** Check first, always:
+   ```bash
+   source ./config.sh
+   "$CALIBREDB" --with-library "$LIBRARY" fts_index status
+   ```
+   Below 90% the search is refused outright; above it, the unindexed books are simply skipped with no warning at all. `calibre_fts_search.sh --reindex` fixes both.
+2. **The search was refused and something threw the message away.** The refusal goes to **stderr**, with nothing on stdout and exit 1 — identical to a real no-match if stderr is discarded.
+3. **You used `ids:` in a search expression.** It parses and matches nothing. Use `id:1 or id:2`, or `--restrict-to='ids:1,2'` where the other parser applies.
+
+### `Integration status: True` in the middle of the output
+
+Third-party metadata plugin chatter, printed on **stdout** by every Calibre CLI tool, so `2>/dev/null` will not remove it and it breaks anything parsing JSON. Filter it:
+```bash
+calibredb ... | grep -v '^Integration status:'
+```
+Plugin `SyntaxWarning`s are different — those *are* on stderr.
+
+### `calibredb catalog` produced no file and reported success
+
+The output filename must come before **all** options, including `--with-library`. Put it after and Calibre prints "Must specify the catalog output filename before any options" — and **exits 0**, so a script checking the exit status sees a success.
+```bash
+# Wrong — silently does nothing, exit 0
+calibredb --with-library "$LIBRARY" catalog out.csv
+# Right
+calibredb catalog out.csv --with-library "$LIBRARY"
+```
+
+### A search expression fails with `RecursionError`
+
+Calibre's search parser recurses once per `or`. 491 terms is the last size that parses; 492 raises `RecursionError` in `calibre/utils/search_query_parser.py`. There is no way to raise the ceiling — tag the books with `calibre_tag_ids.sh` and search `tags:="the-tag"` instead.
+
+### A Virtual Library disappeared when Calibre restarted
+
+You probably used `marked:`. The `marked` flag is GUI session state — `calibredb` cannot see it and it does not survive quitting. Virtual Libraries built on `id:`, `tags:` or any real metadata field are stored in the library and do survive. See [FULL_TEXT_SEARCH.md](FULL_TEXT_SEARCH.md).

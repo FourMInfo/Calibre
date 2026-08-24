@@ -28,6 +28,12 @@ CALIBRE_WEB_CONFIG="$HOME/.calibre-web"
 # calibredb binary from the Calibre desktop app
 CALIBREDB="/Applications/calibre.app/Contents/MacOS/calibredb"
 
+# Where calibre_fts_search.sh writes its results (.ids, .snippets.txt, .vl.txt).
+# These are working files you come back to, not logs, so they are not rotated.
+# If this is missing from an older config.sh the script falls back to
+# $LOG_DIR/reviews rather than failing.
+REVIEW_DIR="$HOME/Code/FourM/Calibre/reviews"
+
 # Where these scripts live. Leave commented out and each script uses its
 # own directory, which is correct in almost all cases. Uncomment only if
 # you need a script to call its siblings at a different location.

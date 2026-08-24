@@ -61,6 +61,14 @@ Live library: ~/Calibre Library (internal disk)
 | `stop_calibreweb.sh` | Stop CalibreWeb, Calibre app and worker processes |
 | `install_calibre_backup_launchd.sh` | Install nightly backup as a launchd agent |
 | `info.fourm.calibre-backup.plist` | launchd plist for 2am nightly schedule |
+| `calibre_fts_search.sh` | Full-text search from the CLI, saved as ids / snippets / a search expression |
+| `calibre_ids_to_search.sh` | Turn a list of book ids (or a catalog CSV, or calibredb JSON) into a search expression |
+| `calibre_tag_ids.sh` | Add or remove one tag across a list of ids without destroying the other tags |
+
+The three full-text-search scripts are documented in depth in
+[FULL_TEXT_SEARCH.md](FULL_TEXT_SEARCH.md), which also covers why a search
+result in the Calibre GUI does not survive quitting the app, and every route
+for making one that does.
 
 ---
 
@@ -165,6 +173,7 @@ Key values to set:
 LIBRARY="$HOME/Calibre Library"
 LOG_DIR="$HOME/path/to/Logs"
 VENV_DIR="$HOME/path/to/venv/calibre-web-env"
+REVIEW_DIR="$HOME/path/to/Calibre/reviews"
 HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
 ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
 CALIBRE_HOST="https://your-calibre-domain:YOUR_PORT"
@@ -172,6 +181,12 @@ PORT=YOUR_PORT
 CERT_FILE="$HOME/path/to/your_cert.pem"
 KEY_FILE="$HOME/path/to/your_key.key"
 ```
+
+`REVIEW_DIR` is where `calibre_fts_search.sh` writes its results. It was added
+after the first `config.sh` files were already in circulation, and `config.sh`
+is gitignored and hand-carried between machines, so an older copy will not have
+it — the script falls back to `$LOG_DIR/reviews` and tells you where the files
+went rather than refusing to run.
 
 See `config.sh.example` for the full list, including `CALIBREDB`,
 `CALIBRE_WEB_CONFIG`, `TMUX_SESSION` and the retention counts.

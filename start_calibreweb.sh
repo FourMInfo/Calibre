@@ -25,7 +25,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 echo "Starting CalibreWeb..."
-tmux new-session -d -s "$SESSION"
+tmux new-session -d -s "$SESSION" -c "$HOME"
 tmux send-keys -t "$SESSION" "source $VENV_DIR/bin/activate && cps" Enter
 echo "✓ CalibreWeb started in tmux session '$SESSION'"
 echo "  Attach with: tmux attach -t $SESSION"

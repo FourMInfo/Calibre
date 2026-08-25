@@ -52,7 +52,7 @@ fi
 # bundle root at the front of its command line, however deeply nested:
 #   /Applications/calibre.app/Contents/ebook-viewer.app/.../MacOS/calibre-parallel
 # A bare `-f calibre` would go too far the other way and match anything with the
-# word in its argv — a shell in ~/Calibre Library, a tail on calibre_web_*.log,
+# word in its argv — a shell in ~/Calibre Library, a tail on calibre-web.log,
 # the venv path (calibre-web-env) — a false "Stopping Calibre..." at best and,
 # with a kill attached, a real hazard.
 #

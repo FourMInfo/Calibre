@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # start_calibreweb.sh
 # Starts CalibreWeb inside a tmux session with two windows:
-#   cps   — CalibreWeb itself, output teed to a timestamped log
+#   cps   — CalibreWeb itself. Its application log is written by CalibreWeb
+#           to $CALIBRE_WEB_CONFIG and is neither copied nor rotated here.
 #   shell — an interactive shell with the venv already active, for debugging
 # Attach with: tmux attach -t calibreweb
 
@@ -19,7 +20,6 @@ source "$_self_dir/config.sh"
 SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 
 SESSION="$TMUX_SESSION"
-LOG_PREFIX="calibre_web"
 
 # Check if cps process is actually running (not just tmux session).
 # Match the venv's cps binary, not a bare "cps" — pgrep -f tests the whole
@@ -37,9 +37,6 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
 fi
 
-mkdir -p "$LOG_DIR"
-CPS_LOG="$LOG_DIR/${LOG_PREFIX}_$(date +%Y%m%d_%H%M%S).log"
-
 echo "Starting CalibreWeb..."
 
 # Run cps as the window's own command rather than typing it into an
@@ -48,12 +45,17 @@ echo "Starting CalibreWeb..."
 # first characters, leaving cps unlaunched. Handing the command straight
 # to tmux means no shell and no prompt to race.
 #
-# Only cps's stdout and stderr are teed here. CalibreWeb's own application
-# log is written by CalibreWeb to $CALIBRE_WEB_CONFIG and is untouched.
+# cps's output is not captured anywhere. CalibreWeb writes its own
+# application log to $CALIBRE_WEB_CONFIG and manages it itself; a second
+# copy in $LOG_DIR was one log too many, and a fresh timestamped file per
+# start meant the real log was the one nobody was reading. What reaches
+# the pane here is the startup banner and anything cps prints before its
+# own logging is up — visible with `tmux attach`, and gone when the
+# session is killed, which is what it is worth.
 #
 # `exec` into a login shell afterwards so the window survives cps exiting
 # and you can read the traceback instead of watching the pane disappear.
-CPS_CMD="source \"$VENV_DIR/bin/activate\"; cps 2>&1 | tee -a \"$CPS_LOG\"; echo; echo \"[cps exited — shell follows]\"; exec \"${SHELL:-/bin/zsh}\" -i"
+CPS_CMD="source \"$VENV_DIR/bin/activate\"; cps; echo; echo \"[cps exited — shell follows]\"; exec \"${SHELL:-/bin/zsh}\" -i"
 tmux new-session -d -s "$SESSION" -n cps -c "$HOME" "/bin/bash -c '$CPS_CMD'"
 
 # Second window: a normal interactive shell for poking around. The venv is
@@ -64,15 +66,8 @@ tmux send-keys -t "$SESSION:shell" "source \"$VENV_DIR/bin/activate\"" Enter
 
 tmux select-window -t "$SESSION:cps"
 
-# ── Log rotation ─────────────────────────────────────────────────────────────
-log_count=$( { ls -1 "$LOG_DIR"/"${LOG_PREFIX}"_*.log 2>/dev/null || true; } | wc -l | tr -d ' \n')
-if [[ "$log_count" -gt "$KEEP_LOGS" ]]; then
-    to_delete=$(( log_count - KEEP_LOGS ))
-    ls -1 "$LOG_DIR"/"${LOG_PREFIX}"_*.log | sort | head -"$to_delete" | xargs rm -f
-fi
-
 echo "✓ CalibreWeb started in tmux session '$SESSION'"
 echo "  Attach with: tmux attach -t $SESSION"
 echo "  Windows:     cps (CalibreWeb), shell (venv active)"
-echo "  cps log:     $CPS_LOG"
+echo "  cps log:     $CALIBRE_WEB_CONFIG/calibre-web.log (written by CalibreWeb)"
 echo "  Access at:   $CALIBRE_HOST"

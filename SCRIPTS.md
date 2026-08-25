@@ -392,7 +392,7 @@ tmux attach -t calibreweb
 
 | Window | Contents |
 |--------|----------|
-| `cps` | CalibreWeb itself, stdout and stderr teed to a timestamped log |
+| `cps` | CalibreWeb itself |
 | `shell` | An interactive shell with the venv already activated, for debugging |
 
 `cps` is selected on attach. The old single-window session ran `cps` in the foreground of an interactive shell, so the first thing you had to do on every attach was background it before you could type anything. Now `cps` has a window of its own and the second window is already sitting at a prompt with the venv active.
@@ -409,11 +409,30 @@ tmux new-session -d -s "$SESSION" -n cps -c "$HOME" "/bin/bash -c '$CPS_CMD'"
 
 After `cps` exits, the window `exec`s into a login shell rather than closing, so a traceback stays on screen instead of vanishing with the pane.
 
-### The `cps` log
+### Where CalibreWeb logs
 
-`cps`'s stdout and stderr are teed to `$LOG_DIR/calibre_web_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept — the same dated-and-pruned convention as every other log in the repo.
+**CalibreWeb writes its own application log and this script does not interfere
+with it.** It goes to `config_logfile` — `~/.calibre-web/calibre-web.log` by
+default — and CalibreWeb appends to it, rotates it and decides its level itself.
+The level and path are set in CalibreWeb's own Admin → Basic Configuration →
+Logfile Configuration, stored in `app.db`, not in `config.sh`. Nothing in this
+repo writes to that file, truncates it, or deletes it.
 
-**This is not CalibreWeb's application log.** CalibreWeb writes that itself, to `config_logfile` (`~/.calibre-web/calibre-web.log` by default). It never passes through stdout and is not touched here.
+Earlier versions of this script also teed `cps`'s stdout and stderr to
+`$LOG_DIR/calibre_web_YYYYMMDD_HHMMSS.log`, on the dated-and-pruned convention
+every other log in the repo follows. That was wrong here. CalibreWeb's real log
+is the one in `$CALIBRE_WEB_CONFIG`; the tee produced a second, near-empty file
+per start — `cps` prints almost nothing to stdout once its own logging is up —
+and having two candidates meant the one being read was the one with nothing in
+it. The tee and its rotation are gone.
+
+`cps`'s stdout and stderr now go to the tmux pane and nowhere else: the startup
+banner, plus anything printed before logging is initialised or after it fails.
+Read it with `tmux attach -t calibreweb`. It does not survive the session being
+killed, which is the right lifetime for it.
+
+If `$LOG_DIR` still holds `calibre_web_*.log` files, they are residue from the
+old behaviour and can be deleted.
 
 ### Notes
 - Checks for an actual `cps` process, not just tmux session existence

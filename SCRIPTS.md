@@ -627,8 +627,8 @@ Turns a list of book ids into a search expression you can paste into the search 
 
 ### Usage
 ```bash
-./calibre_ids_to_search.sh ~/reviews/marginalia.ids
-./calibre_ids_to_search.sh --copy ~/reviews/marginalia.ids
+./calibre_ids_to_search.sh "$REVIEW_DIR/marginalia.ids"
+./calibre_ids_to_search.sh --copy "$REVIEW_DIR/marginalia.ids"
 ./calibre_ids_to_search.sh --field author_sort --out expr.txt ids.txt
 calibredb list -s 'tag:history' --for-machine | ./calibre_ids_to_search.sh -
 ```
@@ -676,9 +676,9 @@ Adds or removes one tag across a list of book ids without disturbing the other t
 
 ### Usage
 ```bash
-./calibre_tag_ids.sh --dry-run ~/reviews/marginalia.ids review-2026-08-24
-./calibre_tag_ids.sh ~/reviews/marginalia.ids review-2026-08-24
-./calibre_tag_ids.sh --remove ~/reviews/marginalia.ids review-2026-08-24
+./calibre_tag_ids.sh --dry-run "$REVIEW_DIR/marginalia.ids" review-2026-08-24
+./calibre_tag_ids.sh "$REVIEW_DIR/marginalia.ids" review-2026-08-24
+./calibre_tag_ids.sh --remove "$REVIEW_DIR/marginalia.ids" review-2026-08-24
 ```
 
 ### Why this exists

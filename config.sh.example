@@ -32,7 +32,12 @@ CALIBREDB="/Applications/calibre.app/Contents/MacOS/calibredb"
 # These are working files you come back to, not logs, so they are not rotated.
 # If this is missing from an older config.sh the script falls back to
 # $LOG_DIR/reviews rather than failing.
-REVIEW_DIR="$HOME/Code/FourM/Calibre/reviews"
+#
+# Keep this OUTSIDE the repo, next to $LOG_DIR. .snippets.txt holds passages
+# copied out of your books and this is a public repo. Since you choose the
+# path, no committed .gitignore can know what to exclude — pointing it inside
+# the repo means editing .gitignore by hand and remembering to, every time.
+REVIEW_DIR="$HOME/Code/FourM/Reviews"
 
 # Where these scripts live. Leave commented out and each script uses its
 # own directory, which is correct in almost all cases. Uncomment only if

@@ -29,9 +29,9 @@
 #   --yes            Skip the confirmation prompt (for use in other scripts)
 #
 # Examples:
-#   ./calibre_tag_ids.sh --dry-run ~/reviews/marginalia.ids review-2026-08-24
-#   ./calibre_tag_ids.sh ~/reviews/marginalia.ids review-2026-08-24
-#   ./calibre_tag_ids.sh --remove ~/reviews/marginalia.ids review-2026-08-24
+#   ./calibre_tag_ids.sh --dry-run "$REVIEW_DIR/marginalia.ids" review-2026-08-24
+#   ./calibre_tag_ids.sh "$REVIEW_DIR/marginalia.ids" review-2026-08-24
+#   ./calibre_tag_ids.sh --remove "$REVIEW_DIR/marginalia.ids" review-2026-08-24
 #
 # Compatible with bash 3.2 (default on macOS)
 

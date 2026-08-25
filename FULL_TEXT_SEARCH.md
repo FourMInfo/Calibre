@@ -76,7 +76,7 @@ as a Virtual Library, or — for a result too large for an expression — tag th
 books:
 
 ```bash
-./calibre_tag_ids.sh ~/reviews/fts_20260824_143210.ids review-20260824
+./calibre_tag_ids.sh "$REVIEW_DIR/fts_20260824_143210.ids" review-20260824
 # then in calibre, search:  tags:="review-20260824"
 ```
 
@@ -341,7 +341,7 @@ read through.
 ```bash
 "$CALIBREDB" --with-library "$LIBRARY" fts_search --include-snippets \
     --match-start-marker='>>>' --match-end-marker='<<<' \
-    'quicksilver' > ~/reviews/quicksilver.txt
+    'quicksilver' > "$REVIEW_DIR/quicksilver.txt"
 ```
 
 Set the markers, or the file is full of ANSI escapes.
@@ -370,7 +370,7 @@ Richer than a bare id list: titles, authors, tags, whatever columns you ask for.
 Good for a record you will read as a human, or hand to a spreadsheet.
 
 ```bash
-"$CALIBREDB" catalog ~/reviews/result.csv \
+"$CALIBREDB" catalog "$REVIEW_DIR/result.csv" \
     --fields id,title,authors,tags \
     --search 'tag:history' \
     --with-library "$LIBRARY"
@@ -379,7 +379,7 @@ Good for a record you will read as a human, or hand to a spreadsheet.
 Or, straight from a saved id list:
 
 ```bash
-"$CALIBREDB" catalog ~/reviews/result.csv \
+"$CALIBREDB" catalog "$REVIEW_DIR/result.csv" \
     --fields id,title,authors,tags \
     -i "$(tr '\n' ',' < result.ids | sed 's/,$//')" \
     --with-library "$LIBRARY"
@@ -528,7 +528,7 @@ For a result **under ~490 books**, keep the library clean:
 
 ```bash
 ./calibre_fts_search.sh --name marginalia 'marginalia'
-cat ~/reviews/marginalia.vl.txt        # id:4 or id:17 or ...
+cat "$REVIEW_DIR/marginalia.vl.txt"        # id:4 or id:17 or ...
 ```
 
 Paste into calibre → **Virtual Library → Create**. Nothing in the library
@@ -538,14 +538,14 @@ For a result **over 490 books**, or one you want to work through over weeks:
 
 ```bash
 ./calibre_fts_search.sh --name marginalia 'marginalia'
-./calibre_tag_ids.sh --dry-run ~/reviews/marginalia.ids review-20260824
-./calibre_tag_ids.sh ~/reviews/marginalia.ids review-20260824
+./calibre_tag_ids.sh --dry-run "$REVIEW_DIR/marginalia.ids" review-20260824
+./calibre_tag_ids.sh "$REVIEW_DIR/marginalia.ids" review-20260824
 ```
 
 Then a Virtual Library on `tags:="review-20260824"`. When you are done:
 
 ```bash
-./calibre_tag_ids.sh --remove ~/reviews/marginalia.ids review-20260824
+./calibre_tag_ids.sh --remove "$REVIEW_DIR/marginalia.ids" review-20260824
 ```
 
 Keep the `.ids` file either way. It is the thing that lets you re-tag, re-narrow
@@ -646,7 +646,7 @@ They chain:
 
 ```bash
 ./calibre_fts_search.sh --name review 'query'
-./calibre_tag_ids.sh ~/reviews/review.ids review-20260824
+./calibre_tag_ids.sh "$REVIEW_DIR/review.ids" review-20260824
 ```
 
 and `calibre_ids_to_search.sh` reads stdin, so it drops into any pipe:
@@ -667,5 +667,9 @@ where the files went — these are working files you come back to, not logs, so
 they are never rotated away.
 
 ```bash
-REVIEW_DIR="$HOME/Code/FourM/Calibre/reviews"
+REVIEW_DIR="$HOME/Code/FourM/Reviews"
 ```
+
+Keep it outside the repo. `.snippets.txt` holds passages copied out of your
+books and this repo is public, and since you choose the path, no committed
+`.gitignore` can know what to exclude.

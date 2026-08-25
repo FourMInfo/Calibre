@@ -19,9 +19,15 @@ calibre_nightly_backup_tmp.sh
 # Logs (stored in ~/Code/FourM/Logs, not in repo)
 *.log
 
-# Full-text search output (REVIEW_DIR). The default in config.sh.example is
-# inside the repo, and .snippets.txt files contain passages copied out of your
-# books — not something to push to a public repo.
+# Full-text search output (REVIEW_DIR). The default is $HOME/Code/FourM/Reviews,
+# outside the repo, so none of this should ever match. It stays as a backstop
+# for anyone who points REVIEW_DIR inside the repo anyway: .snippets.txt holds
+# passages copied out of your books, and this repo is public.
+#
+# The backstop is partial by nature. REVIEW_DIR is yours to name, so the
+# directory rule below only catches the obvious choice; the extension globs do
+# the real work, and only while the script keeps writing these three suffixes.
+# Keeping REVIEW_DIR out of the repo is the actual fix.
 reviews/
 *.ids
 *.snippets.txt

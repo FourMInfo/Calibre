@@ -173,7 +173,7 @@ Key values to set:
 LIBRARY="$HOME/Calibre Library"
 LOG_DIR="$HOME/path/to/Logs"
 VENV_DIR="$HOME/path/to/venv/calibre-web-env"
-REVIEW_DIR="$HOME/path/to/Calibre/reviews"
+REVIEW_DIR="$HOME/Code/FourM/Reviews"
 HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
 ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
 CALIBRE_HOST="https://your-calibre-domain:YOUR_PORT"
@@ -187,6 +187,12 @@ after the first `config.sh` files were already in circulation, and `config.sh`
 is gitignored and hand-carried between machines, so an older copy will not have
 it — the script falls back to `$LOG_DIR/reviews` and tells you where the files
 went rather than refusing to run.
+
+**Keep it outside the repo.** `.snippets.txt` holds passages copied out of your
+books and this repo is public. Because you choose the path, no committed
+`.gitignore` can know what to exclude — put `REVIEW_DIR` inside the repo and you
+are editing `.gitignore` by hand and relying on remembering to. The default sits
+next to `$LOG_DIR`, which is outside the repo for the same reason.
 
 See `config.sh.example` for the full list, including `CALIBREDB`,
 `CALIBRE_WEB_CONFIG`, `TMUX_SESSION` and the retention counts.

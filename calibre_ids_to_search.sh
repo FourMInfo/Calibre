@@ -18,8 +18,8 @@
 #
 # Usage:
 #   ./calibre_ids_to_search.sh [options] FILE
-#   ./calibre_ids_to_search.sh --copy ~/reviews/marginalia.ids
-#   calibredb list -s 'tag:history' --for-machine | ./calibre_ids_to_search.sh -
+#   ./calibre_ids_to_search.sh --copy "$REVIEW_DIR/marginalia.ids"
+#   "$CALIBREDB" list -s 'tag:history' --for-machine | ./calibre_ids_to_search.sh -
 #
 # Options:
 #   --copy        Also put the expression on the clipboard, ready to paste

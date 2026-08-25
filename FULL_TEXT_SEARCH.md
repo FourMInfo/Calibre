@@ -27,6 +27,39 @@ them.
 
 ---
 
+## Before you start — source `config.sh`
+
+Every command in this document is written against `config.sh`, so source it
+first:
+
+```bash
+cd ~/Code/FourM/Calibre
+source config.sh
+```
+
+Two things come from it and neither has a sane fallback:
+
+**`$CALIBREDB`** — the path to the `calibredb` binary. **There is no `calibredb`
+on `PATH`.** Calibre's command-line tools live inside the application bundle, at
+`/Applications/calibre.app/Contents/MacOS/calibredb`, and installing calibre
+does not symlink them anywhere. Typing a bare `calibredb` gets you
+`command not found`, which is the first thing that happens if you skip this
+step.
+
+**`$LIBRARY`** — the library to work on. Every example passes it explicitly with
+`--with-library`, because otherwise `calibredb` uses whichever library it last
+used — not something to leave to chance on a command that writes.
+
+The three scripts in this repo source `config.sh` themselves and check both
+values before doing anything, so `./calibre_fts_search.sh` works from a cold
+shell. It is only the hand-typed commands below that need you to have sourced
+it.
+
+`config.sh` is gitignored. If you do not have one yet, copy `config.sh.example`
+and fill in your own paths.
+
+---
+
 ## Quick start
 
 ```bash
@@ -67,7 +100,7 @@ Which is why the first thing to do is always check the index.
 ## Check the index first, always
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_index status
+"$CALIBREDB" --with-library "$LIBRARY" fts_index status
 ```
 
 ```
@@ -90,7 +123,7 @@ actions are `enable`, `disable`, `status` and `reindex`.
 ## Enabling it
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_index enable
+"$CALIBREDB" --with-library "$LIBRARY" fts_index enable
 ```
 
 This starts indexing in the background. On a large library it is a long job —
@@ -115,7 +148,7 @@ of a big library: open calibre, leave it running, come back later.
 **2. Hold a CLI process open with `--wait-for-completion`.**
 
 ```bash
-yes reindex | calibredb --with-library "$LIBRARY" \
+yes reindex | "$CALIBREDB" --with-library "$LIBRARY" \
     fts_index reindex --wait-for-completion
 ```
 
@@ -133,7 +166,7 @@ One more wrinkle: when `calibredb` exits, `yes` is still writing and dies of
 completely successful run, so in a script append `|| true`:
 
 ```bash
-yes reindex | calibredb --with-library "$LIBRARY" \
+yes reindex | "$CALIBREDB" --with-library "$LIBRARY" \
     fts_index reindex --wait-for-completion || true
 ```
 
@@ -169,7 +202,7 @@ calibre searches quite happily and simply does not look at the remaining 5%.
 will not.
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_search --indexing-threshold=50 'query'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --indexing-threshold=50 'query'
 ```
 
 Lowering the threshold lets you search a half-built index. Do this only when you
@@ -186,7 +219,7 @@ under-indexed library.
 # Part 2 — Searching
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_search 'quicksilver'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search 'quicksilver'
 ```
 
 ```
@@ -215,10 +248,10 @@ usually what you want and occasionally very much not.
 
 ```bash
 # 2 books — includes "appears"
-calibredb --with-library "$LIBRARY" fts_search 'appear'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search 'appear'
 
 # 1 book — the literal word only
-calibredb --with-library "$LIBRARY" fts_search --do-not-match-on-related-words 'appear'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --do-not-match-on-related-words 'appear'
 ```
 
 `calibre_fts_search.sh --exact` is this flag.
@@ -229,10 +262,10 @@ calibredb --with-library "$LIBRARY" fts_search --do-not-match-on-related-words '
 
 ```bash
 # by id
-calibredb --with-library "$LIBRARY" fts_search --restrict-to='ids:1,2,3' 'query'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --restrict-to='ids:1,2,3' 'query'
 
 # by metadata search
-calibredb --with-library "$LIBRARY" fts_search --restrict-to='search:tag:history' 'query'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --restrict-to='search:tag:history' 'query'
 ```
 
 **The `ids:1,2,3` form works here and nowhere else.** In a normal calibre search
@@ -250,7 +283,7 @@ file, and feed it back in.
 ## JSON output
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_search --output-format=json 'quicksilver'
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --output-format=json 'quicksilver'
 ```
 
 ```json
@@ -267,7 +300,7 @@ has to accept both. (`calibre_ids_to_search.sh` does.)
 condition, but under `set -e` it will kill your script. Guard it:
 
 ```bash
-out="$(calibredb --with-library "$LIBRARY" fts_search 'query' || true)"
+out="$("$CALIBREDB" --with-library "$LIBRARY" fts_search 'query' || true)"
 ```
 
 ---
@@ -306,7 +339,7 @@ Not a selection, but often the actual goal: the matched passages themselves, to
 read through.
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_search --include-snippets \
+"$CALIBREDB" --with-library "$LIBRARY" fts_search --include-snippets \
     --match-start-marker='>>>' --match-end-marker='<<<' \
     'quicksilver' > ~/reviews/quicksilver.txt
 ```
@@ -324,7 +357,7 @@ The lowest-common-denominator format and the input to everything else:
 ```
 
 ```bash
-calibredb --with-library "$LIBRARY" fts_search 'query' \
+"$CALIBREDB" --with-library "$LIBRARY" fts_search 'query' \
     | grep -o 'Book id: [0-9]*' | sed 's/Book id: //' | sort -n -u > result.ids
 ```
 
@@ -337,7 +370,7 @@ Richer than a bare id list: titles, authors, tags, whatever columns you ask for.
 Good for a record you will read as a human, or hand to a spreadsheet.
 
 ```bash
-calibredb catalog ~/reviews/result.csv \
+"$CALIBREDB" catalog ~/reviews/result.csv \
     --fields id,title,authors,tags \
     --search 'tag:history' \
     --with-library "$LIBRARY"
@@ -346,7 +379,7 @@ calibredb catalog ~/reviews/result.csv \
 Or, straight from a saved id list:
 
 ```bash
-calibredb catalog ~/reviews/result.csv \
+"$CALIBREDB" catalog ~/reviews/result.csv \
     --fields id,title,authors,tags \
     -i "$(tr '\n' ',' < result.ids | sed 's/,$//')" \
     --with-library "$LIBRARY"
@@ -448,7 +481,7 @@ Because this **destroys your existing tags**:
 
 ```bash
 # DO NOT DO THIS on a book that already has tags
-calibredb --with-library "$LIBRARY" set_metadata 42 --field 'tags:review-20260824'
+"$CALIBREDB" --with-library "$LIBRARY" set_metadata 42 --field 'tags:review-20260824'
 ```
 
 `--field tags:X` **replaces the entire tag list**. Run it against a book tagged
@@ -532,7 +565,7 @@ output. On an install with the Comicvine metadata plugin it emits
 front of the JSON with no newline, so the JSON will not parse.
 
 ```bash
-calibredb ... | grep -v '^Integration status:'
+"$CALIBREDB" ... | grep -v '^Integration status:'
 ```
 
 Plugin `SyntaxWarning`s go to stderr and can be dropped with `2>/dev/null`, but
@@ -619,7 +652,7 @@ They chain:
 and `calibre_ids_to_search.sh` reads stdin, so it drops into any pipe:
 
 ```bash
-calibredb --with-library "$LIBRARY" list -s 'tag:history' --for-machine \
+"$CALIBREDB" --with-library "$LIBRARY" list -s 'tag:history' --for-machine \
     | grep -v '^Integration status:' \
     | ./calibre_ids_to_search.sh --copy -
 ```

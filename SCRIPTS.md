@@ -418,18 +418,59 @@ The level and path are set in CalibreWeb's own Admin → Basic Configuration →
 Logfile Configuration, stored in `app.db`, not in `config.sh`. Nothing in this
 repo writes to that file, truncates it, or deletes it.
 
+#### A one-line `calibre-web.log` is normal
+
+CalibreWeb logs through a `RotatingFileHandler`. When `calibre-web.log` reaches
+roughly 100 KB it is renamed to `calibre-web.log.1`, the previous `.1` becomes
+`.2`, and a fresh empty `calibre-web.log` is started. Two backups are kept; the
+old `.2` is discarded on each rotation.
+
+So `calibre-web.log` holding a single line does not mean logging is broken. It
+means a rotation happened recently and that line is everything written since.
+Check before assuming a bug:
+
+```bash
+ls -la ~/.calibre-web/
+wc -l ~/.calibre-web/calibre-web.log*
+```
+
+Read the history in order, oldest first:
+
+```bash
+cat ~/.calibre-web/calibre-web.log.2 \
+    ~/.calibre-web/calibre-web.log.1 \
+    ~/.calibre-web/calibre-web.log
+```
+
+At about 100 KB per file and two backups, this retains on the order of three
+days. That ceiling is CalibreWeb's, not this repo's — nothing here rotates or
+prunes it.
+
+#### The removed `$LOG_DIR` copy
+
 Earlier versions of this script also teed `cps`'s stdout and stderr to
 `$LOG_DIR/calibre_web_YYYYMMDD_HHMMSS.log`, on the dated-and-pruned convention
-every other log in the repo follows. That was wrong here. CalibreWeb's real log
-is the one in `$CALIBRE_WEB_CONFIG`; the tee produced a second, near-empty file
-per start — `cps` prints almost nothing to stdout once its own logging is up —
-and having two candidates meant the one being read was the one with nothing in
-it. The tee and its rotation are gone.
+every other log in the repo follows. That was wrong here, and worse than
+redundant.
 
-`cps`'s stdout and stderr now go to the tmux pane and nowhere else: the startup
-banner, plus anything printed before logging is initialised or after it fails.
-Read it with `tmux attach -t calibreweb`. It does not survive the session being
-killed, which is the right lifetime for it.
+The tee put `cps`'s stdout on a **pipe**. Python block-buffers stdout when it is
+not a terminal, holding several KB before writing anything, and
+`stop_calibreweb.sh` stops `cps` with `pkill -TERM` — which by default
+terminates the process without flushing stdio. Everything still sitting in the
+buffer was destroyed on every stop. Python keeps stderr line-buffered even off a
+terminal, so stderr lines survived; the surviving `Calibre-Web: server started
+on :NNNN` is one of those. That is why the teed file was near-empty: not because
+`cps` prints little, but because the pipe swallowed what it printed.
+
+Before the tee existed, `cps` was launched via `send-keys` and its stdout was
+the tmux pty — line-buffered, nothing lost. The tee introduced the pipe and the
+data loss with it.
+
+The tee, the timestamped file and its rotation are gone. `cps`'s stdout and
+stderr now go to the tmux pane and nowhere else: the startup banner, plus
+anything printed before logging is initialised or after it fails. Read it with
+`tmux attach -t calibreweb`. It does not survive the session being killed, which
+is the right lifetime for it.
 
 If `$LOG_DIR` still holds `calibre_web_*.log` files, they are residue from the
 old behaviour and can be deleted.

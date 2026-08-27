@@ -63,8 +63,27 @@ launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 # ~/Code/FourM/Calibre would silently run nothing if the repo were cloned
 # anywhere else. Substitution is done with bash's own ${var//pat/repl} rather
 # than sed so that / and & in the path need no escaping.
+# Build and validate in a temp file before moving it into place. Parameter
+# expansion solves sed's delimiter problem but not XML's: a path containing
+# & or < still produces a malformed plist. Writing straight to the destination
+# would leave this machine with a broken plist AND no loaded job, since the
+# old one was booted out above and `set -e` aborts on the failed bootstrap.
+# Validate first, install second.
+plist_tmp="$(mktemp -t calibre-plist)"
 plist_template="$(cat "$PLIST_SRC")"
-printf '%s\n' "${plist_template//__BACKUP_SCRIPT__/$BACKUP_SCRIPT}" > "$PLIST_DEST"
+printf '%s\n' "${plist_template//__BACKUP_SCRIPT__/$BACKUP_SCRIPT}" > "$plist_tmp"
+if ! plutil -lint "$plist_tmp" > /dev/null 2>&1; then
+    rm -f "$plist_tmp"
+    echo "ERROR: the generated plist is not valid XML."
+    echo "  Path substituted: $BACKUP_SCRIPT"
+    echo "  A path containing & or < cannot be used as-is; move the repo"
+    echo "  somewhere without those characters, or set SCRIPT_DIR in config.sh."
+    echo "  Nothing was installed; the previous job was booted out and can be"
+    echo "  restored by fixing the path and running this script again."
+    exit 1
+fi
+mv "$plist_tmp" "$PLIST_DEST"
+chmod 644 "$PLIST_DEST"
 echo "  ✓ Plist installed to $PLIST_DEST"
 echo "    Runs: $BACKUP_SCRIPT"
 

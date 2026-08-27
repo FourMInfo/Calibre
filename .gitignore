@@ -32,3 +32,6 @@ reviews/
 *.ids
 *.snippets.txt
 *.vl.txt
+
+# Local workplan / research documents — never committed. See knowledge-capture-conventions.
+/_research

@@ -51,6 +51,10 @@ HOST_BACKUP="/Volumes/YOUR_EXTERNAL_DRIVE/CalibreBackups"
 # iCloud backup root
 ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
 
+# The nightly backup warns (in its _FAILED log) when the external drive has
+# less free space than this, in GB. Optional; 50 if unset.
+MIN_FREE_GB=50
+
 
 # ── CalibreWeb ────────────────────────────────────────────────────────────────
 # Public URL where CalibreWeb is accessible

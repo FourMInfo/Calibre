@@ -70,6 +70,26 @@ KEY_FILE="$HOME/Code/FourM/Software/Calibre-Keys/your_key.key"
 # tmux session name CalibreWeb runs in
 TMUX_SESSION="calibreweb"
 
+# ── CalibreWeb as a service (optional) ────────────────────────────────────────
+# Leave CALIBRE_WEB_SERVICE_LABEL empty and CalibreWeb runs as you, in tmux.
+# Set it and CalibreWeb runs as its own hidden macOS user under launchd, with
+# no access to your home folder; setup_calibreweb_service.sh builds it, and
+# start/stop_calibreweb.sh switch to loading and unloading the LaunchDaemon.
+#
+# In service mode some keys above must point into the service folder, and the
+# library must be outside your home folder (the service user cannot enter it):
+#
+#   LIBRARY="/Users/Shared/Calibre Library"
+#   VENV_DIR="$CALIBRE_WEB_SERVICE_DIR/venv"
+#   CALIBRE_WEB_CONFIG="$CALIBRE_WEB_SERVICE_DIR/config"
+#   CERT_FILE="$CALIBRE_WEB_SERVICE_DIR/tls/your_cert.pem"
+#   KEY_FILE="$CALIBRE_WEB_SERVICE_DIR/tls/your_key.key"
+#
+# (Set CALIBRE_WEB_SERVICE_DIR before those lines, since they use it.)
+CALIBRE_WEB_SERVICE_LABEL=""                       # e.g. info.fourm.calibre-web
+CALIBRE_WEB_SERVICE_USER="_calibreweb"            # role account: _ and an id in 450-499
+CALIBRE_WEB_SERVICE_DIR="/usr/local/calibre-web"
+
 # ── Rotation policy ───────────────────────────────────────────────────────────
 KEEP_DAILY=7
 KEEP_WEEKLY=4

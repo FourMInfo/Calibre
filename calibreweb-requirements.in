@@ -1,0 +1,15 @@
+# calibreweb-requirements.in
+# What CalibreWeb's venv is built from: CalibreWeb itself and the optional
+# packages this library uses. Not pinned. update_calibreweb.sh propose resolves
+# it to the newest versions allowed and writes calibreweb-requirements.txt,
+# which is what an install actually uses.
+#
+# Optional packages beyond calibreweb's own dependencies:
+#   comicapi   - metadata and covers for .cbz/.cbr comics (calibreweb extra "comics")
+#   goodreads  - Goodreads author info (calibreweb extra "goodreads")
+#   rarfile    - reading .cbr comics; needs an unrar binary set in CalibreWeb's
+#                admin settings (calibreweb extra "metadata")
+calibreweb
+comicapi
+goodreads
+rarfile

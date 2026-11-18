@@ -58,8 +58,11 @@ Live library: ~/Calibre Library (internal disk)
 | `calibre_update_metadata.sh` | Update book metadata from OPF files |
 | `calibre_restore_preview.sh` | Preview a backup snapshot before restoring |
 | `calibre_restore_finalize.sh` | Finalize a restore after preview approval |
-| `setup_calibreweb.sh` | Install or reinstall CalibreWeb |
-| `start_calibreweb.sh` | Start CalibreWeb in a tmux session |
+| `setup_calibreweb.sh` | Install or reinstall CalibreWeb, run as you in tmux |
+| `setup_calibreweb_service.sh` | Set CalibreWeb up as its own macOS user under launchd |
+| `update_calibreweb.sh` | Audit, propose and install CalibreWeb updates from a pinned set |
+| `calibreweb-requirements.in` / `.txt` | What CalibreWeb's venv is built from / the pinned, tested set |
+| `start_calibreweb.sh` | Start CalibreWeb (tmux, or the LaunchDaemon in service mode) |
 | `stop_calibreweb.sh` | Stop CalibreWeb, Calibre app and worker processes |
 | `install_calibre_backup_launchd.sh` | Install nightly backup as a launchd agent |
 | `info.fourm.calibre-backup.plist` | launchd plist for 2am nightly schedule |
@@ -78,7 +81,8 @@ for making one that does.
 
 - macOS (tested on Intel Mac Mini running macOS 15)
 - bash 3.2+ (macOS default — all scripts are bash 3.2 compatible)
-- Python 3.12 (for CalibreWeb)
+- Python 3.14, or 3.12 (for CalibreWeb)
+- `uv` for `update_calibreweb.sh`'s vulnerability check (`pip-audit` through `uvx`)
 - `poppler` for PDF integrity checking: `brew install poppler`
 - `tmux` for CalibreWeb session management: `brew install tmux`
 - `rclone` for iCloud versioned backup: `brew install rclone`
@@ -110,6 +114,24 @@ Then start it:
 ./start_calibreweb.sh
 # Attach to session: tmux attach -t calibreweb
 ```
+
+### Or: CalibreWeb as its own user (service mode)
+
+CalibreWeb faces the internet. Run as you, a flaw in it could read your ssh keys and tokens. In service mode it runs as a hidden user with no login and no access to your home folder. Set the service keys in `config.sh` (see `config.sh.example`), then:
+
+```bash
+./setup_calibreweb_service.sh user
+./setup_calibreweb_service.sh venv
+./setup_calibreweb_service.sh import <copy of old ~/.calibre-web> <cert> <key>   # when moving an install
+./setup_calibreweb_service.sh library
+./setup_calibreweb_service.sh daemon
+./start_calibreweb.sh
+./setup_calibreweb_service.sh check
+```
+
+Each step asks for your password where it needs root, and can be run again. `--dry-run` shows what a step would do.
+
+Updates: `./update_calibreweb.sh check`, then `propose` (writes a tested, pinned set into the repo), then `install`.
 
 ### Setting up nightly backups
 

@@ -19,6 +19,37 @@ fi
 source "$_self_dir/config.sh"
 SCRIPT_DIR="${SCRIPT_DIR:-$_self_dir}"
 
+# ── Service mode: CalibreWeb as its own user under launchd ───────────────────
+# Set up by setup_calibreweb_service.sh. Loading the LaunchDaemon starts cps
+# (RunAtLoad). The sudo rule that setup installs allows exactly this command.
+if [[ -n "${CALIBRE_WEB_SERVICE_LABEL:-}" ]]; then
+    LABEL="$CALIBRE_WEB_SERVICE_LABEL"
+    PLIST="/Library/LaunchDaemons/$LABEL.plist"
+    if launchctl print "system/$LABEL" > /dev/null 2>&1; then
+        echo "CalibreWeb (launchd service $LABEL) is already loaded"
+        exit 0
+    fi
+    echo "Starting CalibreWeb (launchd service $LABEL)..."
+    if ! sudo -n /bin/launchctl bootstrap system "$PLIST"; then
+        echo "ERROR: could not load $PLIST."
+        echo "  Is the service set up? ./setup_calibreweb_service.sh check"
+        exit 1
+    fi
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if pgrep -f "$VENV_DIR/bin/cps" > /dev/null; then
+            echo "✓ CalibreWeb started as $(ps -o user= -p "$(pgrep -f "$VENV_DIR/bin/cps" | head -1)")"
+            echo "  Log:       $CALIBRE_WEB_CONFIG/calibre-web.log (service user only; read with sudo)"
+            echo "  Access at: $CALIBRE_HOST"
+            exit 0
+        fi
+        sleep 2
+    done
+    echo "ERROR: the service is loaded but cps is not running after 30 seconds."
+    echo "  sudo tail $CALIBRE_WEB_CONFIG/launchd.log $CALIBRE_WEB_CONFIG/calibre-web.log"
+    exit 1
+fi
+
+# ── tmux mode ─────────────────────────────────────────────────────────────────
 SESSION="$TMUX_SESSION"
 
 # Check if cps process is actually running (not just tmux session).

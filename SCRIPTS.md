@@ -109,12 +109,77 @@ not with `[[ -d "$HOST_DRIVE" ]]`. On a clean unmount `diskarbitrationd` removes
 
 Two separate flags are tracked: `HOST_MOUNTED` (is the drive there at all) and `HOST_BACKUP_OK` (did the rsync actually succeed). Snapshot rotation is gated on the second, so a failed rsync can never cause a half-written snapshot to be promoted to weekly and a known-good one to be pruned.
 
+### Snapshots that come back, and free space
+
+Two checks write to the `_FAILED.log` (and raise a notification) without stopping the run:
+
+- **Free space**, before the rsync: below `MIN_FREE_GB` (default 50) on the external drive. A normal night adds about 1 GB, so low space means something else is writing to the drive.
+- **Surplus snapshots**, before the prune: more than `KEEP_DAILY + 1` dailies (tonight's is already written), or more than `KEEP_*` of the other kinds. The oldest ones, which are the ones that should not be there, are named.
+
+Why these exist: in November 2026 the snapshots sat inside the Sync.com client's sync folder, and after Sync was reinstalled it kept restoring pruned snapshots from its cloud copy, as full copies without hard links (up to 209 GB each). Rotation deleted them each night and they came back, until the drive was full. Pruning cannot fix that, so the run reports it instead. The fix is on the sync side: delete the restored snapshots from the cloud copy first, then locally.
+
 ### Dependencies
 - `stop_calibreweb.sh` and `start_calibreweb.sh` must be in `$SCRIPT_DIR`
 - `calibre_check_integrity.sh` must be in `$SCRIPT_DIR`
 - `rclone` must be installed: `brew install rclone`
 - `/usr/bin/rsync` must have Full Disk Access in System Settings
 - `/bin/bash` must have Full Disk Access in System Settings
+- On a new Mac, and after anything replaces rclone, run `calibre_backup_permissions.sh` once (below)
+
+---
+
+## `calibre_backup_permissions.sh`
+
+Checks that the nightly backup will be allowed to read the iCloud backup folder and the external drive, before a night run finds out.
+
+### Usage
+```bash
+./calibre_backup_permissions.sh               # waits up to 300 seconds
+./calibre_backup_permissions.sh --timeout 60
+```
+
+Exit status: `0` every probe passed, `1` one failed, `2` no answer in time.
+
+### Why it exists
+
+macOS asks once per program before it may touch `~/Documents` (where the iCloud backup lives) or a removable drive. The nightly backup runs at 2am from launchd, so nobody answers: the job waits, with Calibre and CalibreWeb stopped, until someone clicks the dialog. It happens on a new Mac, and again when an upgrade replaces rclone (2026-11-08: an 8-hour stall after brew upgraded rclone).
+
+### What it does
+
+It starts a one-off launchd job in your login session, the way the nightly job runs, which calls the same script with `--probe`. The probe runs read-only versions of what the backup does:
+
+- `rclone lsd "$ICLOUD_BACKUP"`
+- `rsync --list-only "$HOST_BACKUP/"` (skipped when the drive is not mounted)
+
+If a dialog appears on the Mac's screen meanwhile, click **Allow**, and the probe finishes. On a timeout the job is left loaded so the dialog stays answerable; the next run clears it.
+
+Running the probes straight from a terminal would prove nothing: macOS would credit the access to the terminal app, not to what launchd runs at night.
+
+---
+
+## `calibre_library_manifest.sh`
+
+Writes a sorted manifest of a library folder, one line per file, so two copies of a library can be compared with `diff`.
+
+### Usage
+```bash
+./calibre_library_manifest.sh [--md5] [LIBRARY_DIR] > manifest.txt
+```
+
+- Without `--md5`: `path<TAB>size<TAB>modification time`. Takes seconds; catches missing, extra, resized and re-dated files.
+- With `--md5`: `path<TAB>md5`. Reads every byte (minutes for a large library); also catches changed content.
+
+`LIBRARY_DIR` defaults to `LIBRARY` in `config.sh`. Paths are relative to the library, so libraries in different places compare cleanly. `.DS_Store` files and Syncthing's `.stfolder` are left out, as the iCloud backup leaves them out.
+
+### Comparing a restore with the live library on another Mac
+
+```bash
+./calibre_library_manifest.sh --md5 "/Users/Shared/Calibre Library" > here.txt
+ssh OtherMac 'bash -s -- --md5 ~/"Calibre Library"' < calibre_library_manifest.sh > there.txt
+diff here.txt there.txt && echo identical
+```
+
+When a folder is named, the script needs no `config.sh`, which is what lets it run piped over ssh.
 
 ---
 

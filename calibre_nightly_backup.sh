@@ -186,6 +186,39 @@ rotate_snapshots() {
     prune "yearly"  "$KEEP_YEARLY"
 }
 
+# ── Helper: snapshots that should not be there ───────────────────────────────
+# Rotation keeps KEEP_* snapshots of each kind, so before tonight's prune there
+# can be at most KEEP_DAILY + 1 dailies (tonight's is already written) and
+# KEEP_* of the other kinds (promotion happens after this check). More means
+# snapshots came back after an earlier prune, or a prune did not run.
+#
+# Why it is checked rather than just pruned: in November 2026 the Sync.com
+# client, whose sync folder holds these snapshots, kept restoring pruned ones
+# from its cloud copy, as full copies without hard links (up to 209 GB each).
+# Rotation deleted them every night and they came back, until the drive was
+# full. Pruning cannot fix that, so the run reports it: the oldest snapshots
+# are the ones that came back, and they are named in the _FAILED log.
+check_surplus_snapshots() {
+    local backup_root="$1"
+    local spec prefix keep allowed count surplus
+    for spec in "daily:$(( KEEP_DAILY + 1 ))" "weekly:$KEEP_WEEKLY" \
+                "monthly:$KEEP_MONTHLY" "yearly:$KEEP_YEARLY"; do
+        prefix="${spec%%:*}"
+        allowed="${spec#*:}"
+        count=$( { ls -1d "$backup_root"/${prefix}.* 2>/dev/null || true; } | wc -l | tr -d ' \n')
+        if [[ "$count" -gt "$allowed" ]]; then
+            surplus=$(ls -1d "$backup_root"/${prefix}.* | sort | head -"$(( count - allowed ))" \
+                      | xargs -n1 basename | tr '\n' ' ')
+            note_failure "$count $prefix snapshots where at most $allowed are expected. Oldest: ${surplus}— restored by a sync client after an earlier prune (check Sync's cloud copy), or a prune did not run"
+        fi
+    done
+}
+
+# Free space on the drive in whole GB, or empty if df gives nothing.
+host_free_gb() {
+    df -k "$HOST_DRIVE" 2>/dev/null | awk 'NR == 2 { print int($4 / 1024 / 1024) }'
+}
+
 # ── Helper: rotate iCloud versions (rclone-based, no hard links) ──────────────
 # iCloud versions are stored as dated folders under $ICLOUD_VERSIONS/
 # Each folder contains only the files that changed or were deleted that night.
@@ -258,6 +291,17 @@ if ! host_drive_mounted || [[ ! -d "$(dirname "$HOST_BACKUP")" ]]; then
     echo "  ⚠ External drive not mounted — skipping external backup"
     HOST_MOUNTED=false
 else
+    # Warn before the drive fills, not after. A normal night adds about 1 GB,
+    # so this is not about tonight's snapshot: low space means something else
+    # is writing to the drive (see check_surplus_snapshots). The run goes on.
+    free_gb="$(host_free_gb)"
+    if [[ -n "$free_gb" ]]; then
+        echo "  Free space on $HOST_DRIVE: $free_gb GB"
+        if [[ "$free_gb" -lt "${MIN_FREE_GB:-50}" ]]; then
+            note_failure "only $free_gb GB free on $HOST_DRIVE (warning threshold ${MIN_FREE_GB:-50} GB, MIN_FREE_GB in config.sh)"
+        fi
+    fi
+
     # Find last snapshot for --link-dest (safe glob — no error if none exist yet)
     HOST_LAST=$(find "$HOST_BACKUP" -maxdepth 1 -type d \( -name "daily.*" -o -name "weekly.*" -o -name "monthly.*" -o -name "yearly.*" \) 2>/dev/null | sort | tail -1 || true)
 
@@ -311,6 +355,11 @@ echo ""
 
 # ── Step 6: Rotate snapshots ─────────────────────────────────────────────────
 echo "$(ts) [ 6/7 ] Rotating snapshots..."
+
+# Before pruning, so snapshots that came back are counted, not quietly deleted.
+if [[ "$HOST_MOUNTED" == "true" ]]; then
+    check_surplus_snapshots "$HOST_BACKUP"
+fi
 
 # Rotation only runs after a clean rsync. Promoting a partially written
 # snapshot to weekly/monthly/yearly would bake the damage into long-term

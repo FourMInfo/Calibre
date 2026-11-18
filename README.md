@@ -51,6 +51,8 @@ Live library: ~/Calibre Library (internal disk)
 |--------|---------|
 | `config.sh.example` | Template for local machine configuration (copy to `config.sh`) |
 | `calibre_nightly_backup.sh` | Automated nightly backup with rotation |
+| `calibre_backup_permissions.sh` | Check the nightly backup may read the iCloud folder and the external drive |
+| `calibre_library_manifest.sh` | Manifest of a library folder, for comparing a restore with the live library |
 | `calibre_check_integrity.sh` | Scan library for corrupt PDF/EPUB files |
 | `calibre_sync.sh` | Copy missing books between two library folders |
 | `calibre_update_metadata.sh` | Update book metadata from OPF files |
@@ -142,6 +144,8 @@ The backup script requires **Full Disk Access** for `/path/to/bin/rclone`, `/usr
 **System Settings → Privacy & Security → Full Disk Access → Add `/path/to/bin/rclone`, `/usr/bin/rsync` and `/bin/bash`**
 
 Without this, launchd jobs will fail with `Operation not permitted` on external volumes.
+
+macOS also asks once per program before it may read `~/Documents`, and a dialog at 2am stalls the backup until someone answers it. On a new Mac, and after an upgrade replaces rclone, run `./calibre_backup_permissions.sh` and answer any dialog it raises.
 
 ---
 

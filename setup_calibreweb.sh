@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # setup_calibreweb.sh
-# Sets up CalibreWeb in a Python 3.12 venv
+# Sets up CalibreWeb in a Python 3.14 (or 3.12) venv, run as you in tmux.
+# For CalibreWeb as its own user under launchd, use setup_calibreweb_service.sh.
 #
 # What this script does:
 #   1. Creates the venv at the location config.sh gives for VENV_DIR
@@ -46,7 +47,9 @@ fi
 VENV_PARENT="$(dirname "$VENV_DIR")"
 
 # ── Python path (try common locations) ───────────────────────────────────────
-PYTHON="/usr/local/bin/python3.12"
+# 3.14 first: CalibreWeb 0.6.27 was tested on it (2026-11-12 and 2026-11-18).
+# 3.12 is the older fallback, still what the Intel server runs.
+PYTHON=""
 
 # ── Checks ────────────────────────────────────────────────────────────────────
 echo "=========================================="
@@ -54,19 +57,17 @@ echo "  CalibreWeb Setup"
 echo "=========================================="
 echo ""
 
-if [[ ! -f "$PYTHON" ]]; then
-    # Try alternate common locations
-    for p in /usr/bin/python3.12 /opt/homebrew/bin/python3.12 $(which python3.12 2>/dev/null); do
-        if [[ -f "$p" ]]; then
-            PYTHON="$p"
-            break
-        fi
-    done
-fi
+for p in /opt/homebrew/bin/python3.14 /usr/local/bin/python3.14 $(which python3.14 2>/dev/null) \
+         /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12 $(which python3.12 2>/dev/null); do
+    if [[ -f "$p" ]]; then
+        PYTHON="$p"
+        break
+    fi
+done
 
-if [[ ! -f "$PYTHON" ]]; then
-    echo "ERROR: Python 3.12 not found. Install it first:"
-    echo "  brew install python@3.12"
+if [[ -z "$PYTHON" ]]; then
+    echo "ERROR: neither Python 3.14 nor 3.12 found. Install one first:"
+    echo "  brew install python@3.14"
     exit 1
 fi
 

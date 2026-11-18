@@ -21,26 +21,59 @@ SESSION="$TMUX_SESSION"
 # letters. With pkill -KILL below, a false match kills an innocent process.
 CPS_PATTERN="$VENV_DIR/bin/cps"
 
-# SIGTERM the cps process
-if pgrep -f "$CPS_PATTERN" > /dev/null; then
-    echo "Stopping CalibreWeb (SIGTERM)..."
-    pkill -TERM -f "$CPS_PATTERN" || true
-    sleep 5
-    # Force kill if still running
-    if pgrep -f "$CPS_PATTERN" > /dev/null; then
-        echo "Force killing CalibreWeb..."
-        pkill -KILL -f "$CPS_PATTERN" || true
-    fi
-    echo "✓ CalibreWeb stopped"
-else
-    echo "CalibreWeb is not running"
-fi
+stop_failed=false
 
-# Kill tmux session if exists. kill-session takes the whole session down,
-# both the cps window and the debugging shell window, in one go.
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-    tmux kill-session -t "$SESSION"
-    echo "✓ tmux session '$SESSION' closed"
+if [[ -n "${CALIBRE_WEB_SERVICE_LABEL:-}" ]]; then
+    # ── Service mode: unload the LaunchDaemon ────────────────────────────────
+    # bootout, not a kill: the daemon restarts cps after a crash, and a kill
+    # looks like one. The sudo rule from setup_calibreweb_service.sh allows
+    # exactly this command. cps runs as the service user, so pkill from here
+    # could not stop it anyway.
+    LABEL="$CALIBRE_WEB_SERVICE_LABEL"
+    if launchctl print "system/$LABEL" > /dev/null 2>&1; then
+        echo "Stopping CalibreWeb (launchd service $LABEL)..."
+        if sudo -n /bin/launchctl bootout "system/$LABEL"; then
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                pgrep -f "$CPS_PATTERN" > /dev/null || break
+                sleep 2
+            done
+            if pgrep -f "$CPS_PATTERN" > /dev/null; then
+                echo "ERROR: cps is still running 20 seconds after the unload"
+                stop_failed=true
+            else
+                echo "✓ CalibreWeb stopped"
+            fi
+        else
+            echo "ERROR: could not unload system/$LABEL (sudo rule missing?"
+            echo "  ./setup_calibreweb_service.sh check)"
+            stop_failed=true
+        fi
+    else
+        echo "CalibreWeb is not running (service $LABEL not loaded)"
+    fi
+else
+    # ── tmux mode ────────────────────────────────────────────────────────────
+    # SIGTERM the cps process
+    if pgrep -f "$CPS_PATTERN" > /dev/null; then
+        echo "Stopping CalibreWeb (SIGTERM)..."
+        pkill -TERM -f "$CPS_PATTERN" || true
+        sleep 5
+        # Force kill if still running
+        if pgrep -f "$CPS_PATTERN" > /dev/null; then
+            echo "Force killing CalibreWeb..."
+            pkill -KILL -f "$CPS_PATTERN" || true
+        fi
+        echo "✓ CalibreWeb stopped"
+    else
+        echo "CalibreWeb is not running"
+    fi
+
+    # Kill tmux session if exists. kill-session takes the whole session down,
+    # both the cps window and the debugging shell window, in one go.
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        tmux kill-session -t "$SESSION"
+        echo "✓ tmux session '$SESSION' closed"
+    fi
 fi
 
 # Kill Calibre app and worker processes.
@@ -76,4 +109,10 @@ elif pgrep -f "$CALIBRE_APP" > /dev/null; then
     echo "✓ Calibre stopped"
 else
     echo "Calibre is not running"
+fi
+
+# The nightly backup reads this: a CalibreWeb still running during the copy
+# belongs in its _FAILED log.
+if [[ "$stop_failed" == "true" ]]; then
+    exit 1
 fi

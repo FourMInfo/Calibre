@@ -566,6 +566,92 @@ Gracefully stops CalibreWeb, kills the tmux session, and stops the Calibre app a
 ### Notes
 - Stopping Calibre and its parallel workers is important before any database operation — `calibre-parallel` workers hold database connections that cause `apsw.ThreadingViolationError` if not killed first
 
+### Service mode (start and stop)
+
+With `CALIBRE_WEB_SERVICE_LABEL` set in `config.sh`, `start_calibreweb.sh` and `stop_calibreweb.sh` no longer use tmux. They load and unload the LaunchDaemon:
+
+```bash
+sudo -n /bin/launchctl bootstrap system /Library/LaunchDaemons/<label>.plist   # start
+sudo -n /bin/launchctl bootout system/<label>                                  # stop
+```
+
+Those two commands, with exactly those arguments, are what the sudo rule from `setup_calibreweb_service.sh daemon` allows without a password, so the nightly backup can stop and restart CalibreWeb at 2am. `bootout` rather than a kill: the daemon restarts `cps` after a crash, and a kill looks like one. If the unload fails, `stop_calibreweb.sh` exits 1, and the nightly backup records it in its `_FAILED` log.
+
+Loading the daemon starts `cps` (`RunAtLoad`); the daemon is also loaded at every boot from `/Library/LaunchDaemons`, before anyone logs in.
+
+---
+
+## `setup_calibreweb_service.sh`
+
+Sets CalibreWeb up to run as its own hidden macOS user under launchd.
+
+### Why
+
+CalibreWeb faces the internet. Run as you, a flaw in it could read everything you can: ssh keys, tokens, shell secrets. As a role account with no login shell, no home folder and no keys, it reaches only its own files and the library.
+
+### Usage
+
+Run as yourself, never with `sudo`; it asks for your password where root is needed. Each step skips what is done, so any can be rerun. `--dry-run` prints the root commands instead of running them (and, for `daemon`, the plist and sudo rule it would install).
+
+```bash
+./setup_calibreweb_service.sh [--dry-run] user | venv | import DIR CERT KEY | library | daemon | check
+```
+
+| Step | What it does |
+|------|--------------|
+| `user` | Creates the user and a group of the same name (`dscl`), first free id in 450–499, shell `/usr/bin/false`, home `/var/empty`, hidden. Warns if it ended up in `staff`, whose members can read group-readable files in your home |
+| `venv` | Creates the service folder and the venv (Python 3.14, else 3.12), installs `calibreweb-requirements.txt`, runs `pip check` |
+| `import DIR CERT KEY` | Copies `app.db`, `.key` and `gdrive.db` from a copy of an existing config folder, and the certificate and key; then rewrites the paths in `app.db` that name the old machine: library, port, certificate, key, Calibre's binaries folder and converter, kepubify, unrar (empty if none), log files (default) |
+| `library` | Access rules (ACLs) on the library for the service group and for you, on every folder and file, inherited by new ones |
+| `daemon` | Installs `/Library/LaunchDaemons/<label>.plist` and `/etc/sudoers.d/calibre-web`. Does not start it |
+| `check` | Shows what is in place: user, folders and owners, venv, library rule, daemon, sudo rule, loaded state, `cps` user, login page answer. No sudo |
+
+### Layout
+
+| Path | Owner | Holds |
+|------|-------|-------|
+| `$CALIBRE_WEB_SERVICE_DIR` | root, 755 | the rest |
+| `venv/` | you, 755 | the Python venv. Yours, so updates need no sudo; `cps` cannot change its own code |
+| `config/` | service user, 700 | `app.db`, `.key`, `gdrive.db`, `calibre-web.log`, `access.log`, `launchd.log` |
+| `home/` | service user, 700 | the service user's `HOME`: CalibreWeb's and Calibre's converter settings, the cache |
+| `tls/` | root, group service user, 750 | certificate and key, 640: readable by `cps`, not writable |
+
+The LaunchDaemon sets `HOME`, `CALIBRE_DBPATH` (where CalibreWeb finds `app.db`), `CACHE_DIRECTORY` and a `PATH` with Homebrew. `KeepAlive` restarts `cps` after a crash but not after a clean exit (the admin page's Shutdown).
+
+### The library is shared, and stays yours
+
+The Calibre desktop app writes as you, CalibreWeb as the service user. Plain Unix permissions would leave each unable to change the other's new files, so `library` adds ACL entries for both, with `file_inherit,directory_inherit`. Every new folder and file inherits them, whoever creates it. The library must be outside your home folder (e.g. `/Users/Shared/Calibre Library`): the service user cannot enter `/Users/<you>`, which is the point.
+
+Files copied in with `rsync` or Syncthing inherit the rules like any new file. A file moved in with `mv` from elsewhere on the same disk keeps its old rules: rerun `library` after such a move.
+
+---
+
+## `update_calibreweb.sh`
+
+Keeps CalibreWeb's venv patched without guessing: the live venv only gets a pinned set that was built and checked first.
+
+### Usage
+```bash
+./update_calibreweb.sh check     # read-only: pip-audit and newer versions of the live venv
+./update_calibreweb.sh propose   # newest allowed set, built in a throwaway venv, written to calibreweb-requirements.txt
+./update_calibreweb.sh install   # apply calibreweb-requirements.txt to the live venv
+```
+
+### The two requirement files
+
+- `calibreweb-requirements.in`: what is wanted: `calibreweb`, plus `comicapi`, `goodreads` and `rarfile`. Not pinned. Upper limits go here when a new version conflicts (e.g. `pycountry<23` if comicapi ever stops declaring it).
+- `calibreweb-requirements.txt`: every package, pinned. Written by `propose`, installed by `install` and by `setup_calibreweb_service.sh venv`. Commit each change through a PR, so the history shows what ran when.
+
+### Why three steps
+
+In October 2026 an eager upgrade straight into the live venv broke two optional packages (comicapi needs `pycountry<23`), and only `pip check`, read afterwards, showed it. `propose` runs `pip check` in a throwaway venv before anything reaches CalibreWeb. `install` saves a rollback list (`$LOG_DIR/calibreweb-freeze-<time>.txt`) and puts it back if pip refuses the set or `pip check` fails, then starts CalibreWeb either way, and finally checks that the login page answers 200.
+
+`install` stops CalibreWeb with `stop_calibreweb.sh`, which also quits the Calibre desktop app.
+
+### Advisories held back by CalibreWeb itself
+
+`pip-audit` (through `uvx`, never installed into CalibreWeb's venv) reports what is known. Some fixes are out of reach: calibreweb 0.6.27 caps `tornado<6.6`, `PyPDF<6.11`, `cryptography<48` and `certifi<2026.5.21`, so `propose` cannot go past them. Those wait for a CalibreWeb release that raises the caps.
+
 ---
 
 ## `install_calibre_backup_launchd.sh`

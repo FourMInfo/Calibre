@@ -48,6 +48,7 @@ Normally run automatically via launchd at 2am. Can be run manually at any time.
 7. Rotates external drive snapshots: 7 dailies, 4 weeklies, 2 monthlies, 1 yearly
 8. Prunes iCloud versions: keeps last 7 daily version folders
 9. Restarts CalibreWeb (via `start_calibreweb.sh`)
+10. Copies the snapshots to the backup hub (via `calibre_backup_to_hub.sh`), if `HUB_SSH_HOST` is set and tonight's snapshot succeeded. This runs after the restart, so a long copy never keeps CalibreWeb down.
 
 ### Why two different tools for two destinations
 
@@ -78,6 +79,10 @@ iCloud does not support hard links. Testing showed that `rsync --link-dest` on i
 | Weekly | 4 | Latest daily | Every Sunday |
 | Monthly | 2 | Latest weekly | 1st of month |
 | Yearly | 1 | Latest monthly | Jan 1st |
+
+A monthly is a copy of the latest weekly, so when the 1st is not a Sunday it can be up to six days older than that night's daily. Likewise a yearly is the January monthly.
+
+Tonight's rsync links against the newest **daily** (`--link-dest`), falling back to the newest weekly, monthly, then yearly only if there is no daily. Weeklies and the rest are copies of a daily, so the newest daily always holds the newest content. Until November 2026 one sort over all the names chose the snapshot, and since `weekly.*` sorts after `daily.*` it linked against the latest weekly, storing up to six days of changes again instead of linking them.
 
 Weekly/monthly/yearly rotation is not done for iCloud because rclone version folders contain only deltas, not full snapshots — promoting a delta folder as a weekly would be misleading.
 
@@ -125,6 +130,55 @@ Why these exist: in November 2026 the snapshots sat inside the Sync.com client's
 - `/usr/bin/rsync` must have Full Disk Access in System Settings
 - `/bin/bash` must have Full Disk Access in System Settings
 - On a new Mac, and after anything replaces rclone, run `calibre_backup_permissions.sh` once (below)
+
+---
+
+## `calibre_backup_to_hub.sh`
+
+Copies every snapshot on the external drive (`HOST_BACKUP`) to another Mac, the backup hub, over ssh, keeping the hard links. The hub can then take them off-site; in this setup its Sync.com client uploads them.
+
+### Usage
+```bash
+./calibre_backup_to_hub.sh                   # copy
+./calibre_backup_to_hub.sh --dry-run         # show what would be sent and deleted; change nothing
+./calibre_backup_to_hub.sh --allow-deletes   # copy even if many snapshots would be deleted on the hub
+```
+
+`calibre_nightly_backup.sh` runs it as its last step when `HUB_SSH_HOST` is set in `config.sh`. It can also be run by hand. The first run sends the whole library (about 256 GB in November 2026), and later runs send about a night's changes.
+
+### How it copies
+
+One `rsync -aH --delete` of the whole snapshot folder. `-H` keeps the hard links between the snapshots, and links a new snapshot's unchanged files to the copies the hub already has, so nothing unchanged is sent twice. Snapshots pruned on the drive are pruned on the hub, so the hub always holds the same set. The script copies snapshots; it never rotates anything itself.
+
+Syncthing is not used for this: it does not keep hard links, so each snapshot would arrive as a full copy of the library (14 snapshots of a 256 GB library would need about 3.5 TB).
+
+Apple's `/usr/bin/rsync` (openrsync) on both Macs is enough; it supports `-H` and `--delete`.
+
+**A dry run overstates the size.** With `--dry-run`, openrsync counts every hard-linked path as a transfer, so 14 snapshots show as 14 full libraries (3.56 TB and 393,660 files in November 2026). A real copy sends each file once and links the rest (tested: a file linked into two snapshots was sent once, and both paths share one inode on the hub). What a first copy really sends is `du -sh "$HOST_BACKUP"`, which counts each file once: 439 GB then.
+
+### Checks before anything is sent
+
+The run stops, and the nightly's `_FAILED.log` names it, if:
+
+- the external drive is not mounted (the same `mount` test as the nightly);
+- the drive has no daily snapshot. With `--delete`, mirroring an emptied folder would empty the hub;
+- the hub does not answer over ssh. The key must work without a passphrase or an agent, since launchd runs the nightly;
+- the hub's drive is not mounted. Otherwise rsync would fill the hub's internal disk under `/Volumes`;
+- more than `MAX_HUB_SNAPSHOT_DELETES` (default 3) snapshots would be deleted on the hub. A normal night deletes one or two; more means the drive lost snapshots. Check it, then run once with `--allow-deletes`;
+- another copy is still running (a lock in `~/.local/state/calibre-hub/`; a lock left by a run that died is taken over).
+
+### Checks after the copy
+
+- The hub holds exactly the drive's snapshots.
+- A file in the newest daily on the hub has more than one link. If none has, the snapshots arrived as full copies.
+
+### Logs
+
+`$LOG_DIR/calibre_hub_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept. When the nightly runs it, its own log only says whether the copy succeeded.
+
+### Config
+
+`HUB_SSH_HOST` (a Host in `~/.ssh/config`; empty = skipped), `HUB_BACKUP` (the folder on the hub; its parent must exist), `MAX_HUB_SNAPSHOT_DELETES` (optional, 3).
 
 ---
 

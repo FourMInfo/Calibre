@@ -55,6 +55,20 @@ ICLOUD_BACKUP="$HOME/Documents/Backups/Calibre"
 # less free space than this, in GB. Optional; 50 if unset.
 MIN_FREE_GB=50
 
+# ── Backup hub (optional) ─────────────────────────────────────────────────────
+# calibre_backup_to_hub.sh copies every snapshot in HOST_BACKUP to another Mac
+# over ssh, keeping the hard links (rsync -aH), for example so that Mac can
+# take them off-site. The nightly backup runs it as its last step when
+# HUB_SSH_HOST is set; leave it empty and that step is skipped.
+#
+# HUB_SSH_HOST is a Host from ~/.ssh/config. Its key must work without a
+# passphrase or an agent, since the nightly runs under launchd.
+HUB_SSH_HOST=""                                    # e.g. backup-hub
+HUB_BACKUP="/Volumes/YOUR_HUB_DRIVE/CalibreBackups"
+# Refuse to run if more than this many snapshots would be deleted on the hub
+# (a normal night deletes one or two). Override once with --allow-deletes.
+MAX_HUB_SNAPSHOT_DELETES=3
+
 
 # ── CalibreWeb ────────────────────────────────────────────────────────────────
 # Public URL where CalibreWeb is accessible

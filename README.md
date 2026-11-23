@@ -23,6 +23,9 @@ Live library: ~/Calibre Library (internal disk)
      │   7 dailies, 4 weeklies, 2 monthlies, 1 yearly
      │   Hard-link deduplication via --link-dest
      │   ~1GB per day incremental on a 190GB library
+     │        │
+     │        └── rsync -aH over ssh ──► backup hub (calibre_backup_to_hub.sh)
+     │            Same snapshots, hard links kept; the hub takes them off-site
      │
      ├── Nightly rclone sync ──────► ~/Documents/Backups/Calibre/ (iCloud)
      │   current/   — rolling mirror, always reflects last backup
@@ -51,6 +54,7 @@ Live library: ~/Calibre Library (internal disk)
 |--------|---------|
 | `config.sh.example` | Template for local machine configuration (copy to `config.sh`) |
 | `calibre_nightly_backup.sh` | Automated nightly backup with rotation |
+| `calibre_backup_to_hub.sh` | Copy the drive's snapshots to the backup hub over ssh, keeping the hard links |
 | `calibre_backup_permissions.sh` | Check the nightly backup may read the iCloud folder and the external drive |
 | `calibre_library_manifest.sh` | Manifest of a library folder, for comparing a restore with the live library |
 | `calibre_check_integrity.sh` | Scan library for corrupt PDF/EPUB files |

@@ -10,6 +10,8 @@
 #   5. rclone syncs library to iCloud (with --backup-dir versioning)
 #   6. Rotates snapshots: 7 dailies, 4 weeklies, 2 monthlies, 1 yearly
 #   7. Restarts CalibreWeb in tmux
+#   8. Copies the snapshots to the backup hub (calibre_backup_to_hub.sh),
+#      if HUB_SSH_HOST is set in config.sh
 #
 # External drive uses rsync with hard-link deduplication (--link-dest).
 # iCloud uses rclone with --backup-dir versioning because iCloud does not
@@ -237,7 +239,7 @@ rclone_rotate_icloud() {
 }
 
 # ── Step 1: Stop CalibreWeb and Calibre ───────────────────────────────────────
-echo "$(ts) [ 1/7 ] Stopping CalibreWeb and Calibre..."
+echo "$(ts) [ 1/8 ] Stopping CalibreWeb and Calibre..."
 
 if [[ -f "$SCRIPT_DIR/stop_calibreweb.sh" ]]; then
     bash "$SCRIPT_DIR/stop_calibreweb.sh" || note_failure "stop_calibreweb.sh returned an error"
@@ -254,7 +256,7 @@ echo "  ✓ Done"
 echo ""
 
 # ── Step 2: Verify library is accessible ─────────────────────────────────────
-echo "$(ts) [ 2/7 ] Verifying library..."
+echo "$(ts) [ 2/8 ] Verifying library..."
 if [[ ! -d "$LIBRARY" ]]; then
     echo "  ERROR: Library not found at $LIBRARY — aborting backup"
     exit 1
@@ -267,7 +269,7 @@ echo "  ✓ Library OK"
 echo ""
 
 # ── Step 3: Integrity check ──────────────────────────────────────────────────
-echo "$(ts) [ 3/7 ] Running integrity check..."
+echo "$(ts) [ 3/8 ] Running integrity check..."
 
 if [[ -f "$SCRIPT_DIR/calibre_check_integrity.sh" ]]; then
     bash "$SCRIPT_DIR/calibre_check_integrity.sh" "$LIBRARY" "$LOG_DIR" > "/dev/null" \
@@ -280,7 +282,7 @@ fi
 echo ""
 
 # ── Step 4: rsync to external drive ─────────────────────────────────────────
-echo "$(ts) [ 4/7 ] Backing up to external drive..."
+echo "$(ts) [ 4/8 ] Backing up to external drive..."
 
 SNAPSHOT_NAME="daily.$(date +%Y%m%d_%H%M%S)"
 HOST_SNAPSHOT="$HOST_BACKUP/$SNAPSHOT_NAME"
@@ -302,8 +304,19 @@ else
         fi
     fi
 
-    # Find last snapshot for --link-dest (safe glob — no error if none exist yet)
-    HOST_LAST=$(find "$HOST_BACKUP" -maxdepth 1 -type d \( -name "daily.*" -o -name "weekly.*" -o -name "monthly.*" -o -name "yearly.*" \) 2>/dev/null | sort | tail -1 || true)
+    # Newest snapshot for --link-dest. Weeklies, monthlies and yearlies are
+    # copies of a daily, so the newest daily holds the newest content and the
+    # other kinds are only a fallback. Each kind is searched on its own: one
+    # sort over all the names puts weekly.* after daily.*, which picked the
+    # latest weekly even when newer dailies existed (up to 6 days of changes
+    # stored again instead of linked).
+    HOST_LAST=""
+    for kind in daily weekly monthly yearly; do
+        HOST_LAST=$(find "$HOST_BACKUP" -maxdepth 1 -type d -name "${kind}.*" 2>/dev/null | sort | tail -1 || true)
+        if [[ -n "$HOST_LAST" ]]; then
+            break
+        fi
+    done
 
     rsync_status=0
     if [[ -n "$HOST_LAST" ]]; then
@@ -328,7 +341,7 @@ echo ""
 # --backup-dir moves changed/deleted files to a dated versions folder
 # before overwriting, giving point-in-time recovery without hard links.
 # iCloud does not support hard links so rsync --link-dest is not used here.
-echo "$(ts) [ 5/7 ] Backing up to iCloud..."
+echo "$(ts) [ 5/8 ] Backing up to iCloud..."
 
 ICLOUD_VERSION_DIR="$ICLOUD_VERSIONS/daily.$(date +%Y%m%d_%H%M%S)"
 
@@ -354,7 +367,7 @@ fi
 echo ""
 
 # ── Step 6: Rotate snapshots ─────────────────────────────────────────────────
-echo "$(ts) [ 6/7 ] Rotating snapshots..."
+echo "$(ts) [ 6/8 ] Rotating snapshots..."
 
 # Before pruning, so snapshots that came back are counted, not quietly deleted.
 if [[ "$HOST_MOUNTED" == "true" ]]; then
@@ -380,7 +393,7 @@ echo "  ✓ Rotation complete"
 echo ""
 
 # ── Step 7: Restart CalibreWeb ────────────────────────────────────────────────
-echo "$(ts) [ 7/7 ] Restarting CalibreWeb..."
+echo "$(ts) [ 7/8 ] Restarting CalibreWeb..."
 
 if [[ -f "$SCRIPT_DIR/start_calibreweb.sh" ]]; then
     if bash "$SCRIPT_DIR/start_calibreweb.sh"; then
@@ -392,6 +405,25 @@ else
     echo "  ⚠ start_calibreweb.sh not found at $SCRIPT_DIR"
     echo "    Start manually with: source $VENV_DIR/bin/activate && cps &"
     note_failure "start_calibreweb.sh not found at $SCRIPT_DIR — CalibreWeb was not restarted"
+fi
+echo ""
+
+# ── Step 8: Copy the snapshots to the backup hub ─────────────────────────────
+# After the restart, so a long copy never keeps CalibreWeb down. Only after a
+# clean snapshot and rotation: the hub mirrors the drive, so it should only
+# ever see a finished set of snapshots. Its own log is calibre_hub_*.log.
+echo "$(ts) [ 8/8 ] Copying snapshots to the backup hub..."
+
+if [[ -z "${HUB_SSH_HOST:-}" ]]; then
+    echo "  Skipped (HUB_SSH_HOST is not set in config.sh)"
+elif [[ "$HOST_BACKUP_OK" != "true" ]]; then
+    echo "  Skipped (tonight's snapshot failed or the drive is missing)"
+elif [[ ! -f "$SCRIPT_DIR/calibre_backup_to_hub.sh" ]]; then
+    note_failure "calibre_backup_to_hub.sh not found at $SCRIPT_DIR"
+elif bash "$SCRIPT_DIR/calibre_backup_to_hub.sh" > /dev/null; then
+    echo "  ✓ Snapshots copied to $HUB_SSH_HOST"
+else
+    note_failure "copy to the backup hub ($HUB_SSH_HOST) failed — see the newest calibre_hub_*.log"
 fi
 
 echo ""

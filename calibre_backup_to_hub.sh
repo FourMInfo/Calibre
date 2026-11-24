@@ -165,6 +165,25 @@ echo "  Deleted on the hub: ${to_delete:-(none)}" | tr '\n' ' '; echo ""
 if [[ "$delete_count" -gt "$MAX_HUB_SNAPSHOT_DELETES" && "$ALLOW_DELETES" != "true" ]]; then
     fail "$delete_count snapshots would be deleted on the hub (limit $MAX_HUB_SNAPSHOT_DELETES, MAX_HUB_SNAPSHOT_DELETES in config.sh). Check the drive; if it is right, run again with --allow-deletes"
 fi
+
+# Names starting or ending with a space: a warning, not a failure. On
+# 2026-11-24 one such name (a Calibre data file) arrived on the hub without its
+# space and failed the copy; the cause was not found, and tests of openrsync
+# keep such names. New names come in with the newest snapshot, so only that
+# one is searched (about a second).
+newest_daily=$(printf '%s\n' "$local_list" | grep '^daily\.' | tail -1)
+spaced=$(find "$HOST_BACKUP/$newest_daily" \( -name ' *' -o -name '* ' \) 2>/dev/null || true)
+if [[ -n "$spaced" ]]; then
+    echo "  ⚠ WARNING: names starting or ending with a space in $newest_daily (shown in [ ]):"
+    printf '%s\n' "$spaced" | while IFS= read -r p; do
+        rel=${p#"$HOST_BACKUP/$newest_daily/"}
+        dir=${rel%/*}; [[ "$dir" == "$rel" ]] && dir="."
+        echo "      [${rel##*/}]  in $dir"
+    done
+    echo "    Rename them in the library. One such name failed the hub copy on 2026-11-24."
+else
+    echo "  ✓ No names starting or ending with a space in $newest_daily"
+fi
 echo ""
 
 # ── Copy ──────────────────────────────────────────────────────────────────────
@@ -206,7 +225,6 @@ echo "  ✓ Same $local_count snapshots on both"
 # daily shares its file with the older snapshots. If no file there has a
 # second link, the snapshots arrived as full copies.
 if [[ "$local_count" -gt 1 ]]; then
-    newest_daily=$(printf '%s\n' "$local_list" | grep '^daily\.' | tail -1)
     linked=$(hub "find $(q "$HUB_BACKUP/$newest_daily") -type f -links +1 -print -quit" || true)
     if [[ -z "$linked" ]]; then
         fail "no hard links in $newest_daily on the hub: the snapshots were copied as full copies"

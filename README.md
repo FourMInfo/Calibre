@@ -33,18 +33,21 @@ Live library: ~/Calibre Library (internal disk)
      │   Syncs to iCloud automatically
      │   rclone used instead of rsync because iCloud does not support hard links
      │
-     └── Syncthing live mirror ────► local backup machine internal disk
-         Continuous, best-effort, same-day recovery
-              │
-              └── Sync.com client ──► Cloud storage
+     └── By hand, after a day of work ─► backup hub (calibre_backup_now.sh)
+         rsync mirror of the live library, without full-text-search.db;
+         the hub takes it off-site with the snapshots
 ```
 
-**Recovery options in order of speed:**
-1. Local backup machine (Syncthing) — same-day work preserved
-2. Last nightly on external drive — known good, previous night, full point-in-time snapshot
-3. iCloud current — offsite full mirror, always reflects last backup
-4. iCloud versions — offsite per-file recovery for recently changed/deleted files
-5. Sync.com cloud — ultimate offsite fallback
+The Syncthing live mirror to the hub was dropped on 2026-11-25: it kept falling
+out of sync, and `calibre_backup_now.sh` saves a day's work when it matters.
+
+**Recovery options:**
+
+1. iCloud current — offsite full mirror, always reflects last backup
+2. iCloud versions — offsite per-file recovery for recently changed/deleted files
+3. Last nightly on external drive — full point-in-time snapshot, previous night
+4. The hub — the same snapshots, plus the library as of the last `calibre_backup_now.sh`
+5. The hub's off-site backup — last resort
 
 ---
 
@@ -55,6 +58,7 @@ Live library: ~/Calibre Library (internal disk)
 | `config.sh.example` | Template for local machine configuration (copy to `config.sh`) |
 | `calibre_nightly_backup.sh` | Automated nightly backup with rotation |
 | `calibre_backup_to_hub.sh` | Copy the drive's snapshots to the backup hub over ssh, keeping the hard links |
+| `calibre_backup_now.sh` | By hand: stop CalibreWeb and mirror the live library to the backup hub now |
 | `calibre_backup_permissions.sh` | Check the nightly backup may read the iCloud folder and the external drive |
 | `calibre_library_manifest.sh` | Manifest of a library folder, for comparing a restore with the live library |
 | `calibre_check_integrity.sh` | Scan library for corrupt PDF/EPUB files |

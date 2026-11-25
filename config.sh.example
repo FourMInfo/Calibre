@@ -68,6 +68,10 @@ HUB_BACKUP="/Volumes/YOUR_HUB_DRIVE/CalibreBackups"
 # Refuse to run if more than this many snapshots would be deleted on the hub
 # (a normal night deletes one or two). Override once with --allow-deletes.
 MAX_HUB_SNAPSHOT_DELETES=3
+# calibre_backup_now.sh (by hand) mirrors the live library here on the hub,
+# without full-text-search.db. Keep it outside HUB_BACKUP: that copy deletes
+# anything in HUB_BACKUP that is not on the drive.
+HUB_LIBRARY_COPY="/Volumes/YOUR_HUB_DRIVE/CalibreLibrary"
 
 
 # ── CalibreWeb ────────────────────────────────────────────────────────────────

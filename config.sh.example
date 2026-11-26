@@ -69,7 +69,8 @@ HUB_BACKUP="/Volumes/YOUR_HUB_DRIVE/CalibreBackups"
 # (a normal night deletes one or two). Override once with --allow-deletes.
 MAX_HUB_SNAPSHOT_DELETES=3
 # calibre_backup_now.sh (by hand) mirrors the live library here on the hub,
-# without full-text-search.db. Keep it outside HUB_BACKUP: that copy deletes
+# without full-text-search.db; the nightly's last step brings it up to that
+# night's snapshot (calibre_refresh_library_copy.sh). Empty: that step is skipped. Keep it outside HUB_BACKUP: that copy deletes
 # anything in HUB_BACKUP that is not on the drive.
 HUB_LIBRARY_COPY="/Volumes/YOUR_HUB_DRIVE/CalibreLibrary"
 

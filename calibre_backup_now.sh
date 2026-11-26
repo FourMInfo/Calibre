@@ -15,8 +15,9 @@
 #   5. starts CalibreWeb again, also when a step above failed
 #
 # The copy is a mirror, not a snapshot: it holds the library as it was at the
-# last run. The nightly's snapshots (HOST_BACKUP, and their copy on the hub)
-# keep the history. full-text-search.db (about 18 GB, rewritten whenever books
+# last run, this one or the nightly's last step, which brings it up to that
+# night's snapshot (calibre_refresh_library_copy.sh). The nightly's snapshots
+# (HOST_BACKUP, and their copy on the hub) keep the history. full-text-search.db (about 18 GB, rewritten whenever books
 # are added) is left out; the nightly snapshots carry it.
 #
 # Run by name from anywhere through ~/.local/bin (Dotfiles.Private links.txt):
@@ -162,8 +163,14 @@ CALIBRE_APP="${CALIBREDB%%/Contents/*}"
 if [[ "$CALIBRE_APP" == "$CALIBREDB" ]]; then
     fail "CALIBREDB in config.sh is not a path inside calibre.app"
 fi
-if [[ "$DRY_RUN" != "true" ]] && pgrep -f "$CALIBRE_APP" > /dev/null; then
-    fail "Calibre is open. Quit it, then run this again"
+# A dry run goes on, with a reminder: the real run refuses.
+CALIBRE_OPEN=false
+if pgrep -f "$CALIBRE_APP" > /dev/null; then
+    if [[ "$DRY_RUN" != "true" ]]; then
+        fail "Calibre is open. Quit it, then run this again"
+    fi
+    CALIBRE_OPEN=true
+    echo "  ⚠ Calibre is open: quit it before the real run, which refuses while it is open"
 fi
 
 if ! hub true; then
@@ -208,6 +215,10 @@ echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
     echo "  Dry run done, nothing changed: $(ts)"
+    if [[ "$CALIBRE_OPEN" == "true" ]]; then
+        echo "  ⚠ Calibre is open: quit it before the real run. While it is"
+        echo "    open, metadata.db can change after this list was made."
+    fi
     echo "  Log: $LOG_FILE"
     echo "=========================================="
     prune_logs

@@ -168,6 +168,19 @@ The run stops, and the nightly's `_FAILED.log` names it, if:
 - more than `MAX_HUB_SNAPSHOT_DELETES` (default 3) snapshots would be deleted on the hub. A normal night deletes one or two; more means the drive lost snapshots. Check it, then run once with `--allow-deletes`;
 - another copy is still running (a lock in `~/.local/state/calibre-hub/`; a lock left by a run that died is taken over).
 
+### Checks after the copy
+
+- The hub holds exactly the drive's snapshots.
+- A file in the newest daily on the hub has more than one link. If none has, the snapshots arrived as full copies.
+
+### Logs
+
+`$LOG_DIR/calibre_hub_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept. When the nightly runs it, its own log only says whether the copy succeeded.
+
+### Config
+
+`HUB_SSH_HOST` (a Host in `~/.ssh/config`; empty = skipped), `HUB_BACKUP` (the folder on the hub; its parent must exist), `MAX_HUB_SNAPSHOT_DELETES` (optional, 3).
+
 ---
 
 ## `calibre_refresh_library_copy.sh`
@@ -215,19 +228,6 @@ One `rsync -a --delete`, excluding `.DS_Store` and `full-text-search.db`. The fu
 ### Checks
 
 It stops before anything is changed if the Calibre app is open (quit it: unlike the nightly, it does not kill Calibre), if the nightly or a snapshot copy to the hub is running, if `LIBRARY` has no `metadata.db` (with `--delete`, an empty source would empty the copy), or if the hub or its drive is missing. After the copy, `metadata.db`'s md5 and the number of files must be the same on both ends. CalibreWeb is started again also when a step fails; the log (`calibre_now_*` in `LOG_DIR`) says if that did not work.
-
-### Checks after the copy
-
-- The hub holds exactly the drive's snapshots.
-- A file in the newest daily on the hub has more than one link. If none has, the snapshots arrived as full copies.
-
-### Logs
-
-`$LOG_DIR/calibre_hub_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept. When the nightly runs it, its own log only says whether the copy succeeded.
-
-### Config
-
-`HUB_SSH_HOST` (a Host in `~/.ssh/config`; empty = skipped), `HUB_BACKUP` (the folder on the hub; its parent must exist), `MAX_HUB_SNAPSHOT_DELETES` (optional, 3).
 
 ---
 

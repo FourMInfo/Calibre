@@ -49,6 +49,7 @@ Normally run automatically via launchd at 2am. Can be run manually at any time.
 8. Prunes iCloud versions: keeps last 7 daily version folders
 9. Restarts CalibreWeb (via `start_calibreweb.sh`)
 10. Copies the snapshots to the backup hub (via `calibre_backup_to_hub.sh`), if `HUB_SSH_HOST` is set and tonight's snapshot succeeded. This runs after the restart, so a long copy never keeps CalibreWeb down.
+11. Brings the hub's library mirror (`HUB_LIBRARY_COPY`) up to tonight's snapshot (via `calibre_refresh_library_copy.sh`), if that key is set and the snapshots reached the hub. The copy runs on the hub, disk to disk.
 
 ### Why two different tools for two destinations
 
@@ -169,6 +170,31 @@ The run stops, and the nightly's `_FAILED.log` names it, if:
 
 ---
 
+## `calibre_refresh_library_copy.sh`
+
+Brings the hub's library mirror (`HUB_LIBRARY_COPY`, the one `calibre_backup_now.sh` writes) up to a snapshot that is already on the hub (`HUB_BACKUP`). The nightly runs it as its last step with tonight's snapshot, so the mirror is never older than last night's backup.
+
+### Usage
+```bash
+./calibre_refresh_library_copy.sh                          # from the newest daily on the hub
+./calibre_refresh_library_copy.sh daily.YYYYMMDD_HHMMSS    # from that snapshot
+./calibre_refresh_library_copy.sh --dry-run                # list what would change; change nothing
+```
+
+### How it copies
+
+One `rsync -a --delete` run **on the hub** over ssh, from the snapshot folder to the mirror, excluding `.DS_Store` and `full-text-search.db` as `calibre_backup_now.sh` does. Nothing crosses the network, and CalibreWeb keeps running: the snapshot was taken while it was stopped.
+
+### Checks
+
+It stops before anything is changed if `calibre_backup_now.sh` is running (they share its lock in `~/.local/state/calibre-now/`), if a snapshot copy to the hub is running, if the hub, its drive or the mirror folder is missing, or if the snapshot has no `metadata.db`. After the copy, `metadata.db`'s md5 and the number of files must be the same in the snapshot and the mirror.
+
+### Logs
+
+`$LOG_DIR/calibre_libcopy_YYYYMMDD_HHMMSS.log`, last `$KEEP_LOGS` kept. When the nightly runs it, its own log only says whether the refresh succeeded.
+
+---
+
 ## `calibre_backup_now.sh`
 
 By hand, after a day of metadata or tagging work you do not want to lose before the 02:00 nightly: stops CalibreWeb, mirrors the live library (`LIBRARY`) to `HUB_LIBRARY_COPY` on the backup hub over ssh, and starts CalibreWeb again.
@@ -176,14 +202,15 @@ By hand, after a day of metadata or tagging work you do not want to lose before 
 ### Usage
 ```bash
 calibre_backup_now.sh             # copy (quit Calibre first)
-calibre_backup_now.sh --dry-run   # list what would be sent and deleted; change nothing, CalibreWeb keeps running
+calibre_backup_now.sh --dry-run   # list what would be sent and deleted; change nothing, CalibreWeb keeps running;
+                                  # warns if Calibre is open (the real run refuses)
 ```
 
 It runs by name from anywhere through a link in `~/.local/bin` (Dotfiles.Private `Files/links.txt`), and resolves that link to find `config.sh`, `stop_calibreweb.sh` and `start_calibreweb.sh`.
 
 ### How it copies
 
-One `rsync -a --delete`, excluding `.DS_Store` and `full-text-search.db`. The full-text index is about 18 GB and is rewritten whenever books are added, so it would keep CalibreWeb down for most of each run; the nightly snapshots carry it. The copy is a mirror, not a snapshot: it holds the library as of the last run, and the snapshots keep the history. The first copy was seeded on the hub from a snapshot, so a run sends about a day's changes.
+One `rsync -a --delete`, excluding `.DS_Store` and `full-text-search.db`. The full-text index is about 18 GB and is rewritten whenever books are added, so it would keep CalibreWeb down for most of each run; the nightly snapshots carry it. The copy is a mirror, not a snapshot: it holds the library as of the last run, and the snapshots keep the history. The first copy was seeded on the hub from a snapshot, and each nightly brings it up to that night's snapshot (`calibre_refresh_library_copy.sh`), so a run sends only the day's changes.
 
 ### Checks
 

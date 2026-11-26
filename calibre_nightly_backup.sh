@@ -12,6 +12,8 @@
 #   7. Restarts CalibreWeb in tmux
 #   8. Copies the snapshots to the backup hub (calibre_backup_to_hub.sh),
 #      if HUB_SSH_HOST is set in config.sh
+#   9. Refreshes the hub's library copy from tonight's snapshot, on the hub
+#      (calibre_refresh_library_copy.sh), if HUB_LIBRARY_COPY is set
 #
 # External drive uses rsync with hard-link deduplication (--link-dest).
 # iCloud uses rclone with --backup-dir versioning because iCloud does not
@@ -239,7 +241,7 @@ rclone_rotate_icloud() {
 }
 
 # ── Step 1: Stop CalibreWeb and Calibre ───────────────────────────────────────
-echo "$(ts) [ 1/8 ] Stopping CalibreWeb and Calibre..."
+echo "$(ts) [ 1/9 ] Stopping CalibreWeb and Calibre..."
 
 if [[ -f "$SCRIPT_DIR/stop_calibreweb.sh" ]]; then
     bash "$SCRIPT_DIR/stop_calibreweb.sh" || note_failure "stop_calibreweb.sh returned an error"
@@ -256,7 +258,7 @@ echo "  ✓ Done"
 echo ""
 
 # ── Step 2: Verify library is accessible ─────────────────────────────────────
-echo "$(ts) [ 2/8 ] Verifying library..."
+echo "$(ts) [ 2/9 ] Verifying library..."
 if [[ ! -d "$LIBRARY" ]]; then
     echo "  ERROR: Library not found at $LIBRARY — aborting backup"
     exit 1
@@ -269,7 +271,7 @@ echo "  ✓ Library OK"
 echo ""
 
 # ── Step 3: Integrity check ──────────────────────────────────────────────────
-echo "$(ts) [ 3/8 ] Running integrity check..."
+echo "$(ts) [ 3/9 ] Running integrity check..."
 
 if [[ -f "$SCRIPT_DIR/calibre_check_integrity.sh" ]]; then
     bash "$SCRIPT_DIR/calibre_check_integrity.sh" "$LIBRARY" "$LOG_DIR" > "/dev/null" \
@@ -282,7 +284,7 @@ fi
 echo ""
 
 # ── Step 4: rsync to external drive ─────────────────────────────────────────
-echo "$(ts) [ 4/8 ] Backing up to external drive..."
+echo "$(ts) [ 4/9 ] Backing up to external drive..."
 
 SNAPSHOT_NAME="daily.$(date +%Y%m%d_%H%M%S)"
 HOST_SNAPSHOT="$HOST_BACKUP/$SNAPSHOT_NAME"
@@ -341,7 +343,7 @@ echo ""
 # --backup-dir moves changed/deleted files to a dated versions folder
 # before overwriting, giving point-in-time recovery without hard links.
 # iCloud does not support hard links so rsync --link-dest is not used here.
-echo "$(ts) [ 5/8 ] Backing up to iCloud..."
+echo "$(ts) [ 5/9 ] Backing up to iCloud..."
 
 ICLOUD_VERSION_DIR="$ICLOUD_VERSIONS/daily.$(date +%Y%m%d_%H%M%S)"
 
@@ -367,7 +369,7 @@ fi
 echo ""
 
 # ── Step 6: Rotate snapshots ─────────────────────────────────────────────────
-echo "$(ts) [ 6/8 ] Rotating snapshots..."
+echo "$(ts) [ 6/9 ] Rotating snapshots..."
 
 # Before pruning, so snapshots that came back are counted, not quietly deleted.
 if [[ "$HOST_MOUNTED" == "true" ]]; then
@@ -393,7 +395,7 @@ echo "  ✓ Rotation complete"
 echo ""
 
 # ── Step 7: Restart CalibreWeb ────────────────────────────────────────────────
-echo "$(ts) [ 7/8 ] Restarting CalibreWeb..."
+echo "$(ts) [ 7/9 ] Restarting CalibreWeb..."
 
 if [[ -f "$SCRIPT_DIR/start_calibreweb.sh" ]]; then
     if bash "$SCRIPT_DIR/start_calibreweb.sh"; then
@@ -412,8 +414,9 @@ echo ""
 # After the restart, so a long copy never keeps CalibreWeb down. Only after a
 # clean snapshot and rotation: the hub mirrors the drive, so it should only
 # ever see a finished set of snapshots. Its own log is calibre_hub_*.log.
-echo "$(ts) [ 8/8 ] Copying snapshots to the backup hub..."
+echo "$(ts) [ 8/9 ] Copying snapshots to the backup hub..."
 
+HUB_COPY_OK=false
 if [[ -z "${HUB_SSH_HOST:-}" ]]; then
     echo "  Skipped (HUB_SSH_HOST is not set in config.sh)"
 elif [[ "$HOST_BACKUP_OK" != "true" ]]; then
@@ -421,9 +424,30 @@ elif [[ "$HOST_BACKUP_OK" != "true" ]]; then
 elif [[ ! -f "$SCRIPT_DIR/calibre_backup_to_hub.sh" ]]; then
     note_failure "calibre_backup_to_hub.sh not found at $SCRIPT_DIR"
 elif bash "$SCRIPT_DIR/calibre_backup_to_hub.sh" > /dev/null; then
+    HUB_COPY_OK=true
     echo "  ✓ Snapshots copied to $HUB_SSH_HOST"
 else
     note_failure "copy to the backup hub ($HUB_SSH_HOST) failed — see the newest calibre_hub_*.log"
+fi
+echo ""
+
+# ── Step 9: Refresh the hub's library copy from tonight's snapshot ───────────
+# HUB_LIBRARY_COPY is the mirror calibre_backup_now.sh writes by hand. Bringing
+# it up to last night's backup means a by-hand run always starts from there.
+# The copy runs on the hub, from the snapshot step 8 just put there: nothing
+# crosses the network, and CalibreWeb stays up. Its own log is calibre_libcopy_*.log.
+echo "$(ts) [ 9/9 ] Refreshing the library copy on the backup hub..."
+
+if [[ -z "${HUB_LIBRARY_COPY:-}" ]]; then
+    echo "  Skipped (HUB_LIBRARY_COPY is not set in config.sh)"
+elif [[ "$HUB_COPY_OK" != "true" ]]; then
+    echo "  Skipped (tonight's snapshot did not reach the hub)"
+elif [[ ! -f "$SCRIPT_DIR/calibre_refresh_library_copy.sh" ]]; then
+    note_failure "calibre_refresh_library_copy.sh not found at $SCRIPT_DIR"
+elif bash "$SCRIPT_DIR/calibre_refresh_library_copy.sh" "$SNAPSHOT_NAME" > /dev/null; then
+    echo "  ✓ Library copy on $HUB_SSH_HOST matches $SNAPSHOT_NAME"
+else
+    note_failure "refreshing the library copy on $HUB_SSH_HOST failed — see the newest calibre_libcopy_*.log"
 fi
 
 echo ""

@@ -35,7 +35,9 @@ Live library: ~/Calibre Library (internal disk)
      │
      └── By hand, after a day of work ─► backup hub (calibre_backup_now.sh)
          rsync mirror of the live library, without full-text-search.db;
-         the hub takes it off-site with the snapshots
+         the hub takes it off-site with the snapshots. Each night, after the
+         snapshot copy, the hub brings this mirror up to tonight's snapshot
+         on its own disk (calibre_refresh_library_copy.sh)
 ```
 
 The Syncthing live mirror to the hub was dropped on 2026-11-25: it kept falling
@@ -46,7 +48,7 @@ out of sync, and `calibre_backup_now.sh` saves a day's work when it matters.
 1. iCloud current — offsite full mirror, always reflects last backup
 2. iCloud versions — offsite per-file recovery for recently changed/deleted files
 3. Last nightly on external drive — full point-in-time snapshot, previous night
-4. The hub — the same snapshots, plus the library as of the last `calibre_backup_now.sh`
+4. The hub — the same snapshots, plus the library as of the last nightly or `calibre_backup_now.sh`, whichever is newer
 5. The hub's off-site backup — last resort
 
 ---
@@ -59,6 +61,7 @@ out of sync, and `calibre_backup_now.sh` saves a day's work when it matters.
 | `calibre_nightly_backup.sh` | Automated nightly backup with rotation |
 | `calibre_backup_to_hub.sh` | Copy the drive's snapshots to the backup hub over ssh, keeping the hard links |
 | `calibre_backup_now.sh` | By hand: stop CalibreWeb and mirror the live library to the backup hub now |
+| `calibre_refresh_library_copy.sh` | Bring the hub's library mirror up to a snapshot already on the hub, copying on the hub (nightly step 9) |
 | `calibre_backup_permissions.sh` | Check the nightly backup may read the iCloud folder and the external drive |
 | `calibre_library_manifest.sh` | Manifest of a library folder, for comparing a restore with the live library |
 | `calibre_check_integrity.sh` | Scan library for corrupt PDF/EPUB files |

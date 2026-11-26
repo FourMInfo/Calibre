@@ -40,7 +40,8 @@ if [[ -n "${1:-}" ]]; then
 else
     # Only needed when no folder is named, so the script also runs where there is
     # no config.sh, for example piped over ssh as in the example above.
-    _self_dir="$(cd "$(dirname "$0")" && pwd)"
+    # readlink -f: run through a ~/.local/bin link, $0 is the link.
+    _self_dir="$(dirname "$(readlink -f "$0")")"
     if [[ ! -f "$_self_dir/config.sh" ]]; then
         echo "ERROR: no library folder given and no config.sh at $_self_dir" >&2
         exit 1

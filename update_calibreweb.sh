@@ -33,7 +33,8 @@ set -euo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 
 # ── Load local config ─────────────────────────────────────────────────────────
-_self_dir="$(cd "$(dirname "$0")" && pwd)"
+# readlink -f: run through a ~/.local/bin link, $0 is the link; config.sh is beside the real file.
+_self_dir="$(dirname "$(readlink -f "$0")")"
 if [[ ! -f "$_self_dir/config.sh" ]]; then
     echo "ERROR: config.sh not found at $_self_dir/config.sh"
     echo "  Copy config.sh.example to config.sh and fill in your values."

@@ -55,6 +55,9 @@ out of sync, and `calibre_backup_now.sh` saves a day's work when it matters.
 
 ## Scripts Overview
 
+The scripts used by hand are linked into `~/.local/bin` (Dotfiles.Private `Files/links.txt`), so they run by name
+from any folder; each resolves its link to find `config.sh` and its sibling scripts.
+
 | Script | Purpose |
 |--------|---------|
 | `config.sh.example` | Template for local machine configuration (copy to `config.sh`) |

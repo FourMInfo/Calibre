@@ -419,7 +419,10 @@ step_check() {
         echo "Loaded       : not loaded"
     fi
     if cps_running; then
-        echo "cps          : $ok running as $(ps -o user= -p "$(pgrep -f "$VENV_DIR/bin/cps" | head -1)")"
+        # PID once, then its user: two pgrep calls can see different processes.
+        local cps_pid
+        cps_pid="$(pgrep -f "$VENV_DIR/bin/cps" | head -1 || true)"
+        echo "cps          : $ok running as $(ps -o user= -p "${cps_pid:-0}" 2>/dev/null | tr -d ' ' || true) (pid ${cps_pid:-gone})"
         local code
         code="$(curl -sk -o /dev/null -w '%{http_code}' "https://127.0.0.1:$PORT/login" || true)"
         echo "Login page   : https://127.0.0.1:$PORT/login answers $code"

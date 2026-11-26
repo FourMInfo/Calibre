@@ -35,9 +35,17 @@ if [[ -n "${CALIBRE_WEB_SERVICE_LABEL:-}" ]]; then
         echo "  Is the service set up? ./setup_calibreweb_service.sh check"
         exit 1
     fi
+    # One lookup per pass: the PID and its user are taken together, and success
+    # needs both. Two separate pgrep calls once raced (2026-11-25 02:12: the
+    # process changed between them and the log said "started as " with no user).
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        if pgrep -f "$VENV_DIR/bin/cps" > /dev/null; then
-            echo "✓ CalibreWeb started as $(ps -o user= -p "$(pgrep -f "$VENV_DIR/bin/cps" | head -1)")"
+        cps_pid="$(pgrep -f "$VENV_DIR/bin/cps" | head -1)"
+        cps_user=""
+        if [[ -n "$cps_pid" ]]; then
+            cps_user="$(ps -o user= -p "$cps_pid" 2>/dev/null | tr -d ' ')"
+        fi
+        if [[ -n "$cps_user" ]]; then
+            echo "✓ CalibreWeb started as $cps_user (pid $cps_pid)"
             echo "  Log:       $CALIBRE_WEB_CONFIG/calibre-web.log (service user only; read with sudo)"
             echo "  Access at: $CALIBRE_HOST"
             exit 0
